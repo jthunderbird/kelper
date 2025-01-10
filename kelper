@@ -1,0 +1,126 @@
+#!/bin/bash
+
+namespace=""
+
+# CLI Help
+cli_help() {
+  cli_name=${0##*/}
+
+  echo "
+Usage: $cli_name [command]
+Flags:
+  health, healthcheck          runs healthcheck on namespace defined
+  get                          runs kubectl command - auto cleans yaml output and decodes secrets
+"
+exit 1
+}
+
+
+healthcheck() {
+    color='\033[31m'
+    nc='\033[0m'
+
+    echo -e "${color}Unhealthy pods:${nc}"
+    kubectl get po $namespace --no-headers | grep -Pv '\s+([1-9]+[\d]*)\/\1\s+' | grep -v Completed
+
+    echo -e "${color}Unhealthy applications (deploy,sts,rs,ds,job,cronjob):${nc}"
+    # TODO figure out way to check rs,ds,cronjob as well
+    kubectl get deploy,sts,job $namespace --no-headers | grep -Pv '\s+([1-9]+[\d]*)\/\1\s+'
+
+
+    exit 0
+}
+
+decode() {
+    if [[ $(kubectl $@ | grep "kind: Secret") ]]; then
+        kubectl $@ | yq -r '.data | map_values(@base64d)' | sed 's/\\n/\n/g'
+        exit 0
+    fi
+}
+
+neat() {
+    kubectl "$@" | yq eval 'del(.metadata.creationTimestamp,
+        .metadata.uid,
+        .metadata.generation,
+        .metadata.ownerReferences,
+        .metadata.generateName,
+        .metadata.finalizers,
+        .spec.progressDeadlineSeconds,
+        .spec.revisionHistoryLimit,
+        .spec.template.metadata.creationTimestamp,
+        .spec.template.spec.containers.[].livenessProbe,
+        .spec.template.spec.containers.[].readinessProbe,
+        .spec.template.spec.containers.[].terminationMessagePath,
+        .spec.template.spec.containers.[].terminationMessagePolicy,
+        .spec.template.spec.dnsPolicy,
+        .spec.template.spec.restartPolicy,
+        .spec.template.spec.schedulerName,
+        .spec.template.spec.terminationGracePerionSeconds,
+        .spec.clusterIP,
+        .spec.clusterIPs,
+        .spec.internalTrafficPolicy,
+        .spec.ipFamilies,
+        .spec.ipFamilyPolicy,
+        .spec.sessionAffinity,
+        .metadata.resourceVersion,
+        .status)' -
+}
+
+namespace() {
+    # determine namespace separately so it can go anywhere in user input like kubectl
+    while [[ $# -gt 0 ]]
+    do
+        case "$1" in
+        -n|--namespace)
+            export namespace="--namespace ${2}"
+            ;;
+        -A|--all-namespaces)
+            export namespace="--all-namespaces"
+            ;;
+        esac
+        shift
+    done
+}
+# CLI Flags
+flags()
+{
+    while [[ $# -gt 0 ]]
+    do
+        case "$1" in
+        -n|--namespace)
+            # just to not trip help since namespace is handled separately
+            ;;
+        -A|--all-namespaces)
+            # just to not trip help since namespace is handled separately
+            ;;
+        get)
+            if [[ "$*" == *"-o yaml"* || "$*" == *"-oyaml"* ]]; then
+                decode "$@"
+                neat "$@"
+            else
+                kubectl "$@"
+            fi
+            exit 0
+            ;;
+        healthcheck|health)
+            healthcheck
+            ;;
+        -h|--help)
+            cli_help
+            ;;
+        -*)
+            cli_help
+            ;;
+        esac
+        shift
+    done
+
+    # TODO add preflight check for k8s access
+
+    # TODO add function to verify kubectl and api versions
+
+    # if no option chosen
+    cli_help
+}
+namespace "$@"
+flags "$@"
