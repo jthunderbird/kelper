@@ -1,5 +1,5 @@
 # Kuberetes Helper (kelper)
-Kelper wraps kubectl to add in many ease of use features
+Kelper wraps kubectl to add in ease-of-use features
 
 ## Examples
 
@@ -7,8 +7,8 @@ Kelper wraps kubectl to add in many ease of use features
 alias k=kelper
 
 ### resources focused
-k get secret -n ns mysecret -o yaml # output to decoded secret values, error handling for lack of jq - maybe switch to disable
-k get po -n ns mypod -o yaml # auto-neat - maybe switch to disable neat
+k get secret -n ns mysecret -o yaml # output to decoded secret values, error handling for lack of yq - maybe switch to disable
+k get po -n ns mypod -o yaml # auto-neat - maybe a switch to disable neat
 k healthcheck # runs health check on all applications in cluster - conditional for istio, future for nginx and traefik, only https
 k healthcheck watch # watches health - assumption being watching a deployment come online
 k healthcheck -n ns # health in specific namespace

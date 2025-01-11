@@ -79,7 +79,7 @@ images() {
 
     count=0
     imgname=$(kubectl get pod $namespace $1 -o jsonpath='{.spec.containers[*].name}')
-    printf "\nContainers: \n"
+    printf "\ncontainers: \n"
     for i in $imgname; do
         img=$(kubectl get pod $namespace $1 -o jsonpath="{.spec.containers[${count}].image}")
         echo "  ${i}: ${img}"
