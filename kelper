@@ -11,6 +11,7 @@ Usage: $cli_name [command]
 Flags:
   health, healthcheck          runs healthcheck on namespace defined
   get                          runs kubectl command - auto cleans yaml output and decodes secrets
+  image,images                 lists all images used in a pod or namespace
 "
 exit 1
 }
@@ -66,6 +67,26 @@ neat() {
         .status)' -
 }
 
+images() {
+    count=0
+    imgname=$(kubectl get pod $namespace $1 -o jsonpath='{.spec.initContainers[*].name}')
+    printf "\ninitContainers: \n"
+    for i in $imgname; do
+        img=$(kubectl get pod $namespace $1 -o jsonpath="{.spec.initContainers[${count}].image}")
+        echo "  ${i}: ${img}"
+        count=$((count+1))
+    done
+
+    count=0
+    imgname=$(kubectl get pod $namespace $1 -o jsonpath='{.spec.containers[*].name}')
+    printf "\nContainers: \n"
+    for i in $imgname; do
+        img=$(kubectl get pod $namespace $1 -o jsonpath="{.spec.containers[${count}].image}")
+        echo "  ${i}: ${img}"
+        count=$((count+1))
+    done
+}
+
 namespace() {
     # determine namespace separately so it can go anywhere in user input like kubectl
     while [[ $# -gt 0 ]]
@@ -81,6 +102,7 @@ namespace() {
         shift
     done
 }
+
 # CLI Flags
 flags()
 {
@@ -95,6 +117,7 @@ flags()
             ;;
         get)
             if [[ "$*" == *"-o yaml"* || "$*" == *"-oyaml"* ]]; then
+                # TODO error handling for yq dependency
                 decode "$@"
                 neat "$@"
             else
@@ -104,6 +127,18 @@ flags()
             ;;
         healthcheck|health)
             healthcheck
+            ;;
+        image|images)
+            if [[ "${2}" == "-n" || "${2}" == "--namespace" ]]; then
+                images $4
+            else
+                images $2
+            fi
+            exit 0
+            ;;
+        create|apply|inspect)
+            kubectl "$@"
+            exit 0
             ;;
         -h|--help)
             cli_help
