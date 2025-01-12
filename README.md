@@ -1,5 +1,6 @@
 # Kuberetes Helper (kelper)
-Kelper wraps kubectl to add in ease-of-use features
+
+janky bash functions to make kubectl more better
 
 ## Examples
 
@@ -14,11 +15,12 @@ k healthcheck watch # watches health - assumption being watching a deployment co
 k healthcheck -n ns # health in specific namespace
 k app -n ns # lists all possible applications - ds,deploy,sts,rs,job,cronjob,raw-pod,replicacontrol(warning if this is there)
 k images -n ns (mypod) # lists all images and maps to pod>initContainer>Container
+k volumes # clearly show volume and volume mounts per pod or list
 
 ### user/context focused
 k kubeconfig readonly > ro-config # interact with cluster to make readonly config - default to STDOUT
-k kubeconfig newuser johndoe readonly/admin > johnadmin.yaml # same as above but creating at least trackable users
-k get users/contexts # prints out all available contexts and users and shows who you are and which cluster you are on
+k kubeconfig newuser johndoe readonly/admin/namespace > johnadmin.yaml # same as above but creating at least trackable users
+k users/contexts # prints out all available contexts and users and shows who you are and which cluster you are on
 
 ### ux focused
 k autocomplete # auto setup autocomplete for kelper and kubectl by checking shell and configuring for suported shells

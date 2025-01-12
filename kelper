@@ -9,9 +9,9 @@ cli_help() {
   echo "
 Usage: $cli_name [command]
 Flags:
-  health, healthcheck          runs healthcheck on namespace defined
   get                          runs kubectl command - auto cleans yaml output and decodes secrets
-  image,images                 lists all images used in a pod or namespace
+  health, healthcheck          runs healthcheck on namespace defined
+  image,images                 lists all images used in a pod or namespace (or all namespaces, by pod)
 "
 exit 1
 }
@@ -68,7 +68,7 @@ neat() {
 }
 
 get_images() {
-
+    # list initContainers for pod
     count=0
     imgname=$(kubectl get pod $namespace $1 -o jsonpath='{.spec.initContainers[*].name}')
     printf "\n  initContainers: \n"
@@ -77,7 +77,7 @@ get_images() {
         printf "    ${i}: ${img}\n"
         count=$((count+1))
     done
-
+    # list containers for pod
     count=0
     imgname=$(kubectl get pod $namespace $1 -o jsonpath='{.spec.containers[*].name}')
     printf "\n  containers: \n"
