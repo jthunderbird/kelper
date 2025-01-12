@@ -161,7 +161,7 @@ flags()
             kubectl "$@"
             exit 0
             ;;
-        -h|--help)
+        -h|--help|h|help)
             cli_help
             ;;
         -*)

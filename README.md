@@ -2,7 +2,19 @@
 
 janky bash functions to make kubectl more better
 
-## Examples
+## Installing
+
+Just a janky bash script, put it in your $PATH and profit:
+
+```bash
+git clone https://github.com/jthunderbird/kelper.git
+chmod +x kelper/kelper
+cp kelper/kelper /usr/local/bin/kelper
+alias k=kelper # or for pros # ln -s /usr/local/bin/kelper /usr/local/bin/k
+k help
+```
+
+## Getting Started
 
 ```bash
 alias k=kelper
