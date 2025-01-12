@@ -67,24 +67,45 @@ neat() {
         .status)' -
 }
 
-images() {
+get_images() {
+
     count=0
     imgname=$(kubectl get pod $namespace $1 -o jsonpath='{.spec.initContainers[*].name}')
-    printf "\ninitContainers: \n"
+    printf "\n  initContainers: \n"
     for i in $imgname; do
         img=$(kubectl get pod $namespace $1 -o jsonpath="{.spec.initContainers[${count}].image}")
-        echo "  ${i}: ${img}"
+        printf "    ${i}: ${img}\n"
         count=$((count+1))
     done
 
     count=0
     imgname=$(kubectl get pod $namespace $1 -o jsonpath='{.spec.containers[*].name}')
-    printf "\ncontainers: \n"
+    printf "\n  containers: \n"
     for i in $imgname; do
         img=$(kubectl get pod $namespace $1 -o jsonpath="{.spec.containers[${count}].image}")
-        echo "  ${i}: ${img}"
+        printf "    ${i}: ${img}\n"
         count=$((count+1))
     done
+    echo ""
+}
+
+images() {
+    echo ""
+    if [[ "$(kubectl get pod $namespace $1 -o jsonpath='{.kind}')" == "List" ]]; then
+        # handle list of pods
+        podnames=$(kubectl get pod $namespace -o custom-columns=NAMESPACE:.metadata.namespace,NAME:.metadata.name --no-headers)
+        echo "$podnames" | while IFS= read -r i; do
+            namespace="-n $(echo $i | awk '{print $1}')"
+            pod=$(echo $i | awk '{print $2}')
+            echo "$pod (${namespace}):"
+            get_images $pod
+        done
+    else
+        # handle individual pod
+        image=$(kubectl get pod $namespace $1 -o custom-columns=NAME:.metadata.name --no-headers)
+        echo $image
+        get_images $image
+    fi
 }
 
 namespace() {
