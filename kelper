@@ -28,12 +28,12 @@ healthcheck() {
     # TODO figure out way to check rs,ds,cronjob as well
     kubectl get deploy,sts,job $namespace --no-headers | grep -Pv '\s+([1-9]+[\d]*)\/\1\s+'
 
-
     exit 0
 }
 
 decode() {
-    if [[ $(kubectl $@ | grep "kind: Secret") ]]; then
+    # TODO handle lists
+    if [[ $(kubectl $@ | grep "kind: Secret") ]]; then # TODO use yq instead of grep
         kubectl $@ | yq -r '.data | map_values(@base64d)' | sed 's/\\n/\n/g'
         exit 0
     fi
@@ -97,14 +97,14 @@ images() {
         echo "$podnames" | while IFS= read -r i; do
             namespace="-n $(echo $i | awk '{print $1}')"
             pod=$(echo $i | awk '{print $2}')
-            echo "$pod (${namespace}):"
+            echo "pod: $pod (${namespace}):"
             get_images $pod
         done
     else
         # handle individual pod
-        image=$(kubectl get pod $namespace $1 -o custom-columns=NAME:.metadata.name --no-headers)
-        echo $image
-        get_images $image
+        pod=$(kubectl get pod $namespace $1 -o custom-columns=NAME:.metadata.name --no-headers)
+        echo "pod:" $pod
+        get_images $pod
     fi
 }
 

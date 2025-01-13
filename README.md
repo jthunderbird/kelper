@@ -1,6 +1,6 @@
-# Kuberetes Helper (kelper)
+# kubectl helper (kelper)
 
-janky bash functions to make kubectl more better
+janky bash utility to make kubectl more better
 
 ## Installing
 
