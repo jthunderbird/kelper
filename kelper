@@ -164,21 +164,22 @@ EOF
 
     # function for clusterrolebinding
     clusterrolebinding() {
-        cat <<EOF | kubectl apply -f - 2>&1 >/dev/null &
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: ${newuser}-binding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: ${newuser}-role
-subjects:
-  - apiGroup: rbac.authorization.k8s.io
-    kind: User
-    name: ${newuser}
-EOF
+        kubectl create clusterrolebinding ${newuser}-binding --clusterrole=${newuser}-role --user=${newuser}
+#         cat <<EOF | kubectl apply -f - 2>&1 >/dev/null &
+# ---
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: ClusterRoleBinding
+# metadata:
+#   name: ${newuser}-binding
+# roleRef:
+#   apiGroup: rbac.authorization.k8s.io
+#   kind: ClusterRole
+#   name: ${newuser}-role
+# subjects:
+#   - apiGroup: rbac.authorization.k8s.io
+#     kind: User
+#     name: ${newuser}
+# EOF
     }
 
     # secret for sa
