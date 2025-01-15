@@ -116,7 +116,7 @@ kubeconfig() {
     csr() {
         csrkey=$(mktemp)
         csrreq=$(mktemp)
-        openssl req --new --newkey rsa:4096 --nodes --keyout ${csrkey} --out ${csrreq} --subj "/CN=readonly,/O=readonlyusers" 2>/dev/null
+        openssl req --new --newkey rsa:4096 --nodes --keyout ${csrkey} --out ${csrreq} --subj "/CN=${newuser},/O=readonlyusers" 2>/dev/null
         csr=$(cat ${csrreq} | base64 | tr -d '\n')
 
         cat << EOF | kubectl apply -f -
