@@ -1,6 +1,7 @@
 #!/bin/bash
 
-namespace=""
+namespace="-n default"
+newuser="newuser"
 
 # CLI Help
 cli_help() {
@@ -33,13 +34,15 @@ healthcheck() {
 
 decode() {
     # TODO handle lists
-    if [[ $(kubectl $@ | grep "kind: Secret") ]]; then # TODO use yq instead of grep
+    # TODO use yq instead of grep
+    if [[ $(kubectl $@ | grep "kind: Secret") ]]; then
         kubectl $@ | yq -r '.data | map_values(@base64d)' | sed 's/\\n/\n/g'
         exit 0
     fi
 }
 
 neat() {
+    # TODO add support for lists
     kubectl "$@" | yq eval 'del(.metadata.creationTimestamp,
         .metadata.uid,
         .metadata.generation,
@@ -108,6 +111,144 @@ images() {
     fi
 }
 
+kubeconfig() {
+
+    csr() {
+        csrkey=$(mktemp)
+        csrreq=$(mktemp)
+        openssl req --new --newkey rsa:4096 --nodes --keyout ${csrkey} --out ${csrreq} --subj "/CN=readonly,/O=readonlyusers" 2>/dev/null
+        csr=$(cat ${csrreq} | base64 | tr -d '\n')
+
+        cat << EOF | kubectl apply -f -
+---
+apiVersion: certificates.k8s.io/v1
+kind: CertificateSigningRequest
+metadata:
+  name: ${newuser}
+spec:
+    signerName: kubernetes.io/kube-apiserver-client
+    request: $csr
+    usages:
+        - client auth
+EOF
+        kubectl certificate approve ${newuser}
+        usercert=$(kubectl get csr ${newuser} -o jsonpath='{.status.certificate}')
+    }
+
+    # function to create new service account
+    serviceaccount() {
+        cat <<EOF | kubectl apply -f - 2>&1 >/dev/null &
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ${newuser}
+  namespace: ${namespace}
+EOF
+    }
+
+    # function for clusterrole
+    clusterrole() {
+        cat <<EOF | kubectl apply -f - 2>&1 >/dev/null &
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ${newuser}-role
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+EOF
+    }
+
+    # function for clusterrolebinding
+    clusterrolebinding() {
+        cat <<EOF | kubectl apply -f - 2>&1 >/dev/null &
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ${newuser}-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ${newuser}-role
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: ${newuser}
+EOF
+    }
+
+    # secret for sa
+    sasecret() {
+        cat <<EOF | kubectl apply -f - 2>&1 >/dev/null &
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${newuser}
+  namespace: ${namespace}
+  annotations:
+    kubernetes.io/service-account.name: ${newuser}
+type: kubernetes.io/service-account-token
+EOF
+    }
+
+    # kubeconfig
+    construct_kubeconfig() {
+        echo "---
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    certificate-authority-data: ${CATOKEN}
+    server: ${SERVER}
+  name: kubernetes
+contexts:
+- context:
+    cluster: kubernetes
+    user: ${newuser}
+  name: ${newuser}
+current-context: ${newuser}
+users:
+- name: ${newuser}
+  user:
+    client-certificate-data: ${usercert}
+    client-key-data: $(cat ${csrkey} | base64 | tr -d '\n')
+"
+    }
+
+    if [[ "${2}" == "readonly" || "${2}" == "ro" ]]; then
+        if [[ "$3" ]]; then
+            newuser="readonly-${3}"
+        else
+            newuser="readonly-user"
+        fi
+        # get rid of -n or --namespace for namespace var
+        namespace=$(echo ${namespace} | sed 's/\-n//g')
+        namespace=$(echo ${namespace} | sed 's/\--namespace//g')
+
+        # serviceaccount
+        csr
+        clusterrole
+        clusterrolebinding
+        # sasecret
+
+        # token takes a sec
+        sleep 1
+
+        # TOKEN=$(kubectl get secret ${newuser} -n ${namespace} -o jsonpath="{.data.token}" | base64 --decode)
+        CATOKEN=$(kubectl config view --raw -o jsonpath="{.clusters[0].cluster.certificate-authority-data}")
+        # CATOKEN=$(kubectl get secret ${newuser} -n ${namespace} -o jsonpath="{.data.ca\.crt}")
+        SERVER=$(kubectl config view --raw -o jsonpath="{.clusters[0].cluster.server}")
+
+        construct_kubeconfig
+    fi
+
+}
+
 namespace() {
     # determine namespace separately so it can go anywhere in user input like kubectl
     while [[ $# -gt 0 ]]
@@ -157,15 +298,22 @@ flags()
             fi
             exit 0
             ;;
-        create|apply|inspect)
-            kubectl "$@"
+        kubeconfig)
+            if [[ "$@" == *"-n"* || "$@" == *"--namespace"* ]]; then
+                echo "Do not declare namespaces for 'k kubeconfig'"
+                echo "For namespaced RBAC, run the 'k kubeconfig newuser namespace <namespace> <username>'"
+                exit 0
+            fi
+            kubeconfig "$@"
             exit 0
             ;;
         -h|--help|h|help)
             cli_help
             ;;
-        -*)
-            cli_help
+        *)
+            # catch all for other kubectl functions not mutated by kelper
+            kubectl "$@"
+            exit 0
             ;;
         esac
         shift
@@ -178,5 +326,6 @@ flags()
     # if no option chosen
     cli_help
 }
+
 namespace "$@"
 flags "$@"
