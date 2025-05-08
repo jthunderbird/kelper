@@ -13,6 +13,7 @@ Flags:
   get                          runs kubectl command - auto cleans yaml output and decodes secrets
   health, healthcheck          runs healthcheck on namespace defined
   image,images                 lists all images used in a pod or namespace (or all namespaces, by pod)
+  volume,volumes               lists all volumeMounts and volumes in a pod or namespace (or all namespaces, by pod)
 "
 exit 1
 }
@@ -92,7 +93,39 @@ get_images() {
     echo ""
 }
 
-images() {
+get_volumes() {
+    # list initContainers for pod
+    count=0
+    imgname=$(kubectl get pod $namespace $1 -o jsonpath='{.spec.initContainers[*].name}')
+    printf "\n  initContainers: \n"
+    for i in $imgname; do
+        vol=$(kubectl get pod $namespace $1 -o jsonpath="{.spec.initContainers[${count}].volumeMounts}" | yq -P | sed 's/^/        /')
+        printf "    ${i}: 
+        volumeMounts:
+${vol}\n"
+        count=$((count+1))
+    done
+    # list containers for pod
+    count=0
+    imgname=$(kubectl get pod $namespace $1 -o jsonpath='{.spec.containers[*].name}')
+    printf "\n  containers: \n"
+    for i in $imgname; do
+        vol=$(kubectl get pod $namespace $1 -o jsonpath="{.spec.containers[${count}].volumeMounts}" | yq -P | sed 's/^/        /')
+        printf "    ${i}: 
+        volumeMounts:
+${vol}\n"
+        count=$((count+1))
+    echo ""
+    done
+    # list shared volumes for pod
+    vol=$(kubectl get pod $namespace $1 -o jsonpath="{.spec.volumes}" | yq -P | sed 's/^/        /')
+    printf "  shared volumes for ${1} pod:
+      volumes:
+${vol}\n"
+    echo ""
+}
+
+get_pods() {
     echo ""
     if [[ "$(kubectl get pod $namespace $1 -o jsonpath='{.kind}')" == "List" ]]; then
         # handle list of pods
@@ -101,13 +134,21 @@ images() {
             namespace="-n $(echo $i | awk '{print $1}')"
             pod=$(echo $i | awk '{print $2}')
             echo "pod: $pod (${namespace}):"
-            get_images $pod
+            if [[ $podaction == "images" ]]; then
+                get_images $pod
+            elif [[ $podaction == "volumes" ]]; then
+                get_volumes $pod
+            fi
         done
     else
         # handle individual pod
         pod=$(kubectl get pod $namespace $1 -o custom-columns=NAME:.metadata.name --no-headers)
         echo "pod:" $pod
-        get_images $pod
+        if [[ $podaction == "images" ]]; then
+            get_images $pod
+        elif [[ $podaction == "volumes" ]]; then
+            get_volumes $pod
+        fi
     fi
 }
 
@@ -291,11 +332,21 @@ flags()
         healthcheck|health)
             healthcheck
             ;;
-        image|images)
+        image|images|img|imgs)
+            podaction="images"
             if [[ "${2}" == "-n" || "${2}" == "--namespace" ]]; then
-                images $4
+                get_pods $4
             else
-                images $2
+                get_pods $2
+            fi
+            exit 0
+            ;;
+        volume|volumes|vol|vols)
+            podaction="volumes"
+            if [[ "${2}" == "-n" || "${2}" == "--namespace" ]]; then
+                get_pods $4
+            else
+                get_pods $2
             fi
             exit 0
             ;;
