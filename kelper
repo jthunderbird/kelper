@@ -12,11 +12,12 @@ cli_help() {
   echo "
 Usage: $cli_name [command]
 Flags:
-  get                          runs kubectl command - auto cleans yaml output and decodes secrets
-  health, healthcheck          runs healthcheck on namespace defined
-  image,images                 lists all images used in a pod or namespace (or all namespaces, by pod)
-  resource,resources           lists all limits and requests in a pod or namespace (or all namespaces, by pod)
-  volume,volumes               lists all volumeMounts and volumes in a pod or namespace (or all namespaces, by pod)
+  get                           runs kubectl command - auto cleans yaml output and decodes secrets
+  health, healthcheck           runs healthcheck on namespace defined
+  image, images                 lists all images used in a pod or namespace (or all namespaces, by pod)
+  resource, resources           lists all limits and requests in a pod or namespace (or all namespaces, by pod)
+  volume, volumes               lists all volumeMounts and volumes in a pod or namespace (or all namespaces, by pod)
+  kubeconfig (EXPERIMENTAL)     creates a readonly kubeconfig - needs polishing and more documentation
 "
 exit 1
 }
