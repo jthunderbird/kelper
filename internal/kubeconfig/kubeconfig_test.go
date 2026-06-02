@@ -56,3 +56,10 @@ func TestGenerateRSAKeyReturnsPEMBytes(t *testing.T) {
 		t.Error("expected non-empty key bytes")
 	}
 }
+
+func TestWizardModelInitialStep(t *testing.T) {
+	m := kubeconfig.NewWizardModel()
+	if m.Step() != 0 {
+		t.Errorf("expected initial step 0, got %d", m.Step())
+	}
+}

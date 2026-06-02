@@ -448,13 +448,4 @@ func splitCSV(s string) []string {
 	return out
 }
 
-// runTUI is the placeholder for the interactive wizard.
-// Implemented in tui.go (Task 11).
-func runTUI() error {
-	fmt.Println("kubeconfig TUI not yet implemented — use a subcommand:")
-	fmt.Println("  kelper kubeconfig readonly --user <name> --namespace <ns>")
-	fmt.Println("  kelper kubeconfig admin    --user <name> --namespace <ns>")
-	fmt.Println("  kelper kubeconfig cluster  --user <name>")
-	fmt.Println("  kelper kubeconfig scoped   --user <name> --namespace <ns> --resources <r>")
-	return nil
-}
+
