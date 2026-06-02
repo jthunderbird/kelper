@@ -88,9 +88,15 @@ func main() {
 			return nil
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			// Skip client init for completion subcommand.
-			if cmd.Name() == "completion" {
+			// Skip client init for completion and help — these don't need a cluster.
+			if cmd.Name() == "completion" || cmd.Name() == "help" {
 				return nil
+			}
+			// Skip if any ancestor is completion (e.g. `kelper completion bash`).
+			for c := cmd.Parent(); c != nil; c = c.Parent() {
+				if c.Name() == "completion" {
+					return nil
+				}
 			}
 			// kubeconfig builds its own client internally.
 			if cmd.Name() == "kubeconfig" || cmd.Parent() != nil && cmd.Parent().Name() == "kubeconfig" {

@@ -1,17 +1,26 @@
 # kubectl helper (kelper)
 
-bash utility to make kubectl more better
+A Go binary that wraps kubectl with enhanced output formatting, Secret decoding, cluster healthcheck, pod inspection, and interactive kubeconfig generation. Zero external tool dependencies — works wherever kubectl works.
 
 ## Installing
 
-Just a bash script, put it in your $PATH and profit:
-
 ```bash
 git clone https://github.com/jthunderbird/kelper.git
-chmod +x kelper/kelper
-cp kelper/kelper /usr/local/bin/kelper
-alias k=kelper # or for pros # ln -s /usr/local/bin/kelper /usr/local/bin/k
+cd kelper
+go build -o kelper ./cmd/kelper/
+cp kelper /usr/local/bin/kelper
+alias k=kelper  # or: ln -s /usr/local/bin/kelper /usr/local/bin/k
 k help
+```
+
+The original bash script is available as `kelper.sh` in the repo root as a lightweight reference alternative.
+
+## Shell Completion
+
+```bash
+kelper completion bash   >> ~/.bashrc
+kelper completion zsh    >> ~/.zshrc
+kelper completion fish   > ~/.config/fish/completions/kelper.fish
 ```
 
 ## Getting Started
