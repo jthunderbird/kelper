@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/jthunderbird/kelper/internal/client"
-	"github.com/jthunderbird/kelper/internal/decode"
 	"github.com/jthunderbird/kelper/internal/get"
 	"github.com/jthunderbird/kelper/internal/healthcheck"
 	"github.com/jthunderbird/kelper/internal/images"
@@ -138,5 +137,4 @@ func hasFlag(args []string, flag string) bool {
 	return false
 }
 
-// Ensure decode is imported (used by get internally).
-var _ = decode.Print
+
