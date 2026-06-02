@@ -52,3 +52,11 @@ func TestIsUnhealthyPodAllContainersReady(t *testing.T) {
 		t.Error("expected all-ready pod to be healthy")
 	}
 }
+
+func TestNewTUIModelHasNamespaces(t *testing.T) {
+	namespaces := []string{"default", "kube-system", "monitoring"}
+	m := healthcheck.NewTUIModel(namespaces)
+	if len(m.Namespaces()) != 3 {
+		t.Errorf("expected 3 namespaces, got %d", len(m.Namespaces()))
+	}
+}

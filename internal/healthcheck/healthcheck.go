@@ -225,10 +225,4 @@ func podStatusString(p corev1.Pod) string {
 	return string(p.Status.Phase)
 }
 
-// runTUI is called when no targeting flags are given.
-// Full TUI implemented in tui.go (Task 8). For now falls back to default namespace.
-func runTUI(cs *kubernetes.Clientset) error {
-	fmt.Fprintln(os.Stderr, "Interactive TUI not yet implemented. Running against default namespace.")
-	fmt.Fprintln(os.Stderr, "To target a specific namespace: kelper healthcheck -n <namespace>")
-	return RunTable(cs, "default")
-}
+
