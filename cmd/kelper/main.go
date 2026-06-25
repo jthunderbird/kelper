@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -37,31 +38,60 @@ type GenericResource struct {
 }
 
 func main() {
-	kubeconfig := flag.String("kubeconfig", "", "Path to the kubeconfig file")
-	namespace := flag.String("namespace", "default", "Namespace to list pods from")
-	listPods := flag.Bool("list-pods", false, "List all pods in the namespace along with their init containers and containers")
-	flag.Parse()
+	global, rest := parseGlobal(os.Args[1:])
 
-	// Resolve a single live api-server from the (possibly comma-delimited)
-	// kubeconfig server field, giving the binary client-side failover.
-	resolved, cleanup, err := resolveKubeconfig(*kubeconfig)
+	// No command at all -> show the top-level help.
+	if len(rest) == 0 {
+		printRootHelp(os.Stdout)
+		return
+	}
+
+	switch rest[0] {
+	case "-h", "--help":
+		printRootHelp(os.Stdout)
+		return
+	case "-v", "--version":
+		fmt.Printf("kelper %s\n", appVersion)
+		return
+	}
+
+	// Dispatch to a native command when the first token names one.
+	if cmd, ok := lookupCommand(rest[0]); ok {
+		cmd.run(global, rest[1:])
+		return
+	}
+
+	// Otherwise forward the whole invocation to kubectl.
+	runKubectlPassthrough(global, rest)
+}
+
+// parseGlobal pulls any leading kelper global flags off the argument list and
+// returns the remainder for command dispatch. A leading token that is not a
+// kelper global flag (e.g. a kubectl flag, or -h/--help) is handed back
+// untouched so it can be dispatched or passed through.
+func parseGlobal(args []string) (*globalOpts, []string) {
+	g := &globalOpts{}
+	fs := flag.NewFlagSet("kelper", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&g.kubeconfig, "kubeconfig", "", "Path to the kubeconfig file")
+	if err := fs.Parse(args); err != nil {
+		return g, args
+	}
+	return g, fs.Args()
+}
+
+// runKubectlPassthrough runs kubectl with the given args against the resolved
+// (failover-aware) kubeconfig and applies kelper's output transforms: Secrets
+// are base64-decoded and noisy metadata is stripped on '-o yaml' output.
+func runKubectlPassthrough(global *globalOpts, args []string) {
+	resolved, cleanup, err := resolveKubeconfig(global.kubeconfig)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	defer cleanup()
 
-	if *listPods {
-		listAllPods(resolved, *namespace)
-		return
-	}
-
-	if len(flag.Args()) < 1 {
-		fmt.Println("Usage: kustomkubectl [kubectl arguments]")
-		return
-	}
-
-	cmd := exec.Command("kubectl", flag.Args()...)
+	cmd := exec.Command("kubectl", args...)
 	if resolved != "" {
 		// Hand kubectl the resolved single-server kubeconfig.
 		cmd.Env = append(os.Environ(), "KUBECONFIG="+resolved)
@@ -70,18 +100,19 @@ func main() {
 	cmd.Stdout = &out
 	cmd.Stderr = os.Stderr
 
-	err = cmd.Run()
-	if err != nil {
-		fmt.Printf("Error running kubectl: %v\n", err)
-		return
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running kubectl: %v\n", err)
+		os.Exit(1)
 	}
 
 	output := out.String()
-	if strings.Contains(output, "kind: Secret") && strings.Contains(strings.Join(flag.Args(), " "), "-o yaml") {
+	joined := strings.Join(args, " ")
+	switch {
+	case strings.Contains(output, "kind: Secret") && strings.Contains(joined, "-o yaml"):
 		decodeAndPrintSecrets(output)
-	} else if strings.Contains(strings.Join(flag.Args(), " "), "-o yaml") {
+	case strings.Contains(joined, "-o yaml"):
 		removeMetadataFields(output)
-	} else {
+	default:
 		fmt.Print(output)
 	}
 }

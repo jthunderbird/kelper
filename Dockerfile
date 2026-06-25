@@ -1,11 +1,13 @@
 # ---- build stage ----
 FROM golang:1.22-alpine AS build
+ARG VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 # client-go is pure Go; build a static binary so it runs on a minimal base.
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/kelper ./cmd/kelper
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags="-s -w -X main.appVersion=${VERSION}" -o /out/kelper ./cmd/kelper
 
 # ---- runtime stage ----
 # kelper shells out to kubectl for command passthrough, so the runtime image

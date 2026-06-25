@@ -50,23 +50,49 @@ container image already includes it).
 
 ## Usage
 
-`kelper` passes any arguments straight through to `kubectl`, intercepting the
-output to decode secrets and tidy YAML:
+`kelper` has a few native commands and otherwise passes input straight through
+to `kubectl`, intercepting the output to decode secrets and tidy YAML:
 
 ```bash
-kelper <any kubectl args>
-kelper -list-pods -namespace <ns>     # list pods + their images
-kelper -kubeconfig <path> <args>      # use a specific kubeconfig
+kelper <command> [args]            # run a native command
+kelper <any kubectl args>          # anything else is forwarded to kubectl
+kelper --kubeconfig <path> <args>  # use a specific kubeconfig
 ```
 
-| Flag           | Default     | Description                                            |
-| -------------- | ----------- | ------------------------------------------------------ |
-| `-kubeconfig`  | discovery\* | Path to the kubeconfig file.                           |
-| `-namespace`   | `default`   | Namespace for `-list-pods`.                            |
-| `-list-pods`   | `false`     | List pods with their init containers and containers.   |
+| Command         | Description                                                       |
+| --------------- | ---------------------------------------------------------------- |
+| `list-pods`     | List pods with their init containers, containers, and images.    |
+| `kubectl`       | Run a raw kubectl command (explicit passthrough; use `--` to lead with flags). |
+| `version`       | Print the kelper version.                                        |
+| `help`          | Show help for kelper or a specific command.                      |
+
+| Global flag    | Default     | Description                                                       |
+| -------------- | ----------- | ---------------------------------------------------------------- |
+| `--kubeconfig` | discovery\* | Path to the kubeconfig file (comma-delimited servers for failover). |
+| `-h, --help`   |             | Show help.                                                       |
 
 \* When unset, the standard `KUBECONFIG` env var / `~/.kube/config` discovery
 is used.
+
+Every command supports `--help`, and `kelper help <command>` prints the same
+detail:
+
+```bash
+$ kelper help list-pods
+list-pods - List pods with their init containers, containers, and images
+
+USAGE:
+  kelper list-pods [flags]
+
+FLAGS:
+  -n, --namespace string  Namespace to list pods from (default "default")
+  --kubeconfig string     Path to the kubeconfig file
+  -h, --help              Show this help
+
+EXAMPLES:
+  kelper list-pods
+  kelper list-pods -n kube-system
+```
 
 ## In action
 
@@ -110,10 +136,10 @@ spec:
       ...
 ```
 
-### `-list-pods` — pods and their images
+### `list-pods` — pods and their images
 
 ```bash
-$ kelper -list-pods -namespace kyverno
+$ kelper list-pods -n kyverno
 Pod: kyverno-admission-controller-5d8986c8b6-2g7gr, Namespace: kyverno
 Init Containers:
   Name: kyverno-pre, Image: registry1.dso.mil/ironbank/opensource/kyverno/kyvernopre:v1.13.4

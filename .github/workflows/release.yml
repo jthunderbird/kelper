@@ -26,6 +26,8 @@ jobs:
   release:
     needs: version
     runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -42,7 +44,8 @@ jobs:
             ext=""
             if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
             echo "building kelper-${GOOS}-${GOARCH}${ext}"
-            CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+            CGO_ENABLED=0 go build -trimpath \
+              -ldflags="-s -w -X main.appVersion=${VERSION}" \
               -o "dist/kelper-${GOOS}-${GOARCH}${ext}" ./cmd/kelper
           done
       - uses: softprops/action-gh-release@v2
@@ -69,6 +72,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            VERSION=${{ needs.version.outputs.tag }}
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ needs.version.outputs.tag }}
