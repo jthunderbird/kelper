@@ -48,12 +48,12 @@ jobs:
         run: |
           ext=""
           if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          out="dist/kelp-${GOOS}-${GOARCH}${ext}"
+          out="dist/kelper-${GOOS}-${GOARCH}${ext}"
           mkdir -p dist
-          go build -trimpath -ldflags="-s -w" -o "$out" ./cmd/kelp
+          go build -trimpath -ldflags="-s -w" -o "$out" ./cmd/kelper
       - uses: actions/upload-artifact@v4
         with:
-          name: kelp-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: kelper-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*
 
   release:

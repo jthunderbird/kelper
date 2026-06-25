@@ -1,8 +1,8 @@
 # Compiled binaries - built by CI, never committed
-/kelp
+/kelper
 /main
 /dist/
 *.exe
 
 # Local kubeconfigs / scratch
-kelp-kubeconfig-*.yaml
+kelper-kubeconfig-*.yaml

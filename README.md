@@ -1,4 +1,4 @@
-# kelper (`kelp`)
+# kelper
 
 A small Go wrapper around `kubectl` that makes everyday cluster work nicer:
 
@@ -7,13 +7,8 @@ A small Go wrapper around `kubectl` that makes everyday cluster work nicer:
   `creationTimestamp`, `status`), so output is paste-ready for a manifest.
 - **Lists pods** with their init containers, containers, and images.
 - **Client-side api-server load balancing** — point a single context at a
-  comma-delimited list of api-server endpoints and `kelp` will fail over to the
+  comma-delimited list of api-server endpoints and `kelper` will fail over to the
   next live one automatically.
-
-> Heads up: the binary is `kelp` (built from `cmd/kelp`). The original
-> `kelper` bash script is still in the repo as legacy and carries some extra
-> commands (`health`, `images`, `resources`, `volumes`, `kubeconfig`) that have
-> not yet been ported to the Go binary.
 
 ## Installing
 
@@ -23,9 +18,9 @@ Grab the latest binary for your OS/arch from the
 [Releases](https://github.com/jthunderbird/kelper/releases) page, then:
 
 ```bash
-chmod +x kelp-linux-amd64
-sudo mv kelp-linux-amd64 /usr/local/bin/kelp
-alias k=kelp   # optional
+chmod +x kelper-linux-amd64
+sudo mv kelper-linux-amd64 /usr/local/bin/kelper
+alias k=kelper   # optional
 k --help
 ```
 
@@ -43,21 +38,21 @@ The image bundles `kubectl`, so it works standalone.
 ```bash
 git clone https://github.com/jthunderbird/kelper.git
 cd kelper
-go build -o kelp ./cmd/kelp
+go build -o kelper ./cmd/kelper
 ```
 
-`kelp` shells out to `kubectl`, so `kubectl` must be on your `PATH` (the
+`kelper` shells out to `kubectl`, so `kubectl` must be on your `PATH` (the
 container image already includes it).
 
 ## Usage
 
-`kelp` passes any arguments straight through to `kubectl`, intercepting the
+`kelper` passes any arguments straight through to `kubectl`, intercepting the
 output to decode secrets and tidy YAML:
 
 ```bash
-kelp <any kubectl args>
-kelp -list-pods -namespace <ns>     # list pods + their images
-kelp -kubeconfig <path> <args>      # use a specific kubeconfig
+kelper <any kubectl args>
+kelper -list-pods -namespace <ns>     # list pods + their images
+kelper -kubeconfig <path> <args>      # use a specific kubeconfig
 ```
 
 | Flag           | Default     | Description                                            |
@@ -76,7 +71,7 @@ is used.
 Any `get secret ... -o yaml` has its `data` base64-decoded in place:
 
 ```bash
-$ kelp get secret -n kiali grafana-auth -o yaml
+$ kelper get secret -n kiali grafana-auth -o yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -88,12 +83,12 @@ data:
 
 ### `-o yaml` — cleaned up
 
-For any non-secret `-o yaml`, `kelp` removes the auto-mutated fields
+For any non-secret `-o yaml`, `kelper` removes the auto-mutated fields
 (`metadata.uid`, `metadata.creationTimestamp`, `status`) so the result is ready
 to drop into a YAML file:
 
 ```bash
-$ kelp get po -n flux-system helm-controller-678f5576df-g7scx -o yaml
+$ kelper get po -n flux-system helm-controller-678f5576df-g7scx -o yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -114,7 +109,7 @@ spec:
 ### `-list-pods` — pods and their images
 
 ```bash
-$ kelp -list-pods -namespace kyverno
+$ kelper -list-pods -namespace kyverno
 Pod: kyverno-admission-controller-5d8986c8b6-2g7gr, Namespace: kyverno
 Init Containers:
   Name: kyverno-pre, Image: registry1.dso.mil/ironbank/opensource/kyverno/kyvernopre:v1.13.4
@@ -125,8 +120,8 @@ Containers:
 ## API-server load balancing
 
 `kubectl` accepts one — and only one — `server:` per cluster in a kubeconfig.
-If that endpoint is down, you are stuck. `kelp` lifts that limit: list multiple
-api-server endpoints, comma-delimited, in the `server:` field, and `kelp`
+If that endpoint is down, you are stuck. `kelper` lifts that limit: list multiple
+api-server endpoints, comma-delimited, in the `server:` field, and `kelper`
 probes them in order and uses the first one that is reachable.
 
 ### Configure it
@@ -156,7 +151,7 @@ users:
 
 ### How it behaves
 
-On each invocation `kelp`:
+On each invocation `kelper`:
 
 1. Reads the current context's `server` field and splits it on commas.
 2. Probes each endpoint in order (a 2s TCP dial).
@@ -168,7 +163,7 @@ On each invocation `kelp`:
 Example, first endpoint down:
 
 ```bash
-$ kelp get pods -n flux-system
+$ kelper get pods -n flux-system
 api-server https://10.0.0.1:6443 unreachable (dial tcp 10.0.0.1:6443: i/o timeout); trying next endpoint...
 api-server https://10.0.0.2:6443 reachable; using it
 NAME                                READY   STATUS    RESTARTS   AGE
@@ -178,7 +173,7 @@ helm-controller-678f5576df-g7scx    1/1     Running   0          20h
 All endpoints down:
 
 ```bash
-$ kelp get pods
+$ kelper get pods
 api-server https://10.0.0.1:6443 unreachable (dial tcp 10.0.0.1:6443: i/o timeout); trying next endpoint...
 api-server https://10.0.0.2:6443 unreachable (dial tcp 10.0.0.2:6443: i/o timeout); trying next endpoint...
 api-server https://10.0.0.3:6443 unreachable (dial tcp 10.0.0.3:6443: i/o timeout); trying next endpoint...
@@ -193,7 +188,7 @@ no temp kubeconfig.
 Every push to `main` runs the [`release`](.github/workflows/release.yml)
 workflow, which:
 
-- cross-compiles `kelp` for linux/macOS (amd64 + arm64) and windows (amd64) and
+- cross-compiles `kelper` for linux/macOS (amd64 + arm64) and windows (amd64) and
   attaches them to a GitHub Release, and
 - builds and pushes the container image to
   `ghcr.io/jthunderbird/kelper` (`:latest`, the release tag, and the commit SHA).

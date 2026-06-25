@@ -69,7 +69,7 @@ func resolveKubeconfig(kubeconfigPath string) (string, func(), error) {
 	cluster.Server = chosen
 	rawConfig.Clusters[kubeContext.Cluster] = cluster
 
-	tmp, err := os.CreateTemp("", "kelp-kubeconfig-*.yaml")
+	tmp, err := os.CreateTemp("", "kelper-kubeconfig-*.yaml")
 	if err != nil {
 		return "", noop, fmt.Errorf("creating temp kubeconfig: %w", err)
 	}

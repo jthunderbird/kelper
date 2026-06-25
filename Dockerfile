@@ -5,10 +5,10 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 # client-go is pure Go; build a static binary so it runs on a minimal base.
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/kelp ./cmd/kelp
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/kelper ./cmd/kelper
 
 # ---- runtime stage ----
-# kelp shells out to kubectl for command passthrough, so the runtime image
+# kelper shells out to kubectl for command passthrough, so the runtime image
 # needs it. Pull a pinned, current kubectl straight from the official release
 # bucket (dl.k8s.io) rather than a third-party image.
 FROM alpine:3.20
@@ -19,5 +19,5 @@ RUN apk add --no-cache ca-certificates curl \
         "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
     && chmod +x /usr/local/bin/kubectl \
     && apk del curl
-COPY --from=build /out/kelp /usr/local/bin/kelp
-ENTRYPOINT ["/usr/local/bin/kelp"]
+COPY --from=build /out/kelper /usr/local/bin/kelper
+ENTRYPOINT ["/usr/local/bin/kelper"]
