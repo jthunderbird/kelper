@@ -1,62 +1,99 @@
-# kubectl helper (kelper)
+# kelper (`kelp`)
 
-bash utility to make kubectl more better
+A small Go wrapper around `kubectl` that makes everyday cluster work nicer:
+
+- **Decodes secrets** automatically on `-o yaml` output.
+- **Cleans up YAML** by stripping the noise Kubernetes injects (`uid`,
+  `creationTimestamp`, `status`), so output is paste-ready for a manifest.
+- **Lists pods** with their init containers, containers, and images.
+- **Client-side api-server load balancing** — point a single context at a
+  comma-delimited list of api-server endpoints and `kelp` will fail over to the
+  next live one automatically.
+
+> Heads up: the binary is `kelp` (built from `cmd/kelp`). The original
+> `kelper` bash script is still in the repo as legacy and carries some extra
+> commands (`health`, `images`, `resources`, `volumes`, `kubeconfig`) that have
+> not yet been ported to the Go binary.
 
 ## Installing
 
-Just a bash script, put it in your $PATH and profit:
+### Pre-built binaries (recommended)
+
+Grab the latest binary for your OS/arch from the
+[Releases](https://github.com/jthunderbird/kelper/releases) page, then:
+
+```bash
+chmod +x kelp-linux-amd64
+sudo mv kelp-linux-amd64 /usr/local/bin/kelp
+alias k=kelp   # optional
+k --help
+```
+
+### Container image (GHCR)
+
+```bash
+docker pull ghcr.io/jthunderbird/kelper:latest
+docker run --rm -v ~/.kube:/root/.kube ghcr.io/jthunderbird/kelper:latest get pods -A
+```
+
+The image bundles `kubectl`, so it works standalone.
+
+### From source
 
 ```bash
 git clone https://github.com/jthunderbird/kelper.git
-chmod +x kelper/kelper
-cp kelper/kelper /usr/local/bin/kelper
-alias k=kelper # or for pros # ln -s /usr/local/bin/kelper /usr/local/bin/k
-k help
+cd kelper
+go build -o kelp ./cmd/kelp
 ```
 
-## Getting Started
+`kelp` shells out to `kubectl`, so `kubectl` must be on your `PATH` (the
+container image already includes it).
+
+## Usage
+
+`kelp` passes any arguments straight through to `kubectl`, intercepting the
+output to decode secrets and tidy YAML:
 
 ```bash
-alias k=kelper
-
-### resources focused
-k get secret -n ns mysecret -o yaml # output to decoded secret values
-k get po -n ns mypod -o yaml # auto-neat - yq removes unnecessary fields
-k healthcheck # runs health check on all applications in cluster
-k healthcheck -n ns # health in specific namespace
-k healthcheck watch # watches health
-k images -n ns (mypod) # lists all images and maps to pod>initContainer>Container
-k resources # clearly show limits and requests per pod or list
-k volumes # clearly show volume and volume mounts per pod or list
-
-### user/context focused EXPERIMENTAL
-k kubeconfig readonly > ro-config # interact with cluster to make readonly config - default to STDOUT
-
-k kubeconfig newuser johndoe readonly/admin/namespace > johnadmin.yaml # same as above but creating at least trackable users
-k kubeconfig context newuser johndoe readonly/admin/namespace # same as above but adds context to existing kubeconfig instead of creating a new one
-k users/contexts # prints out all available contexts and users and shows who you are and which cluster you are on
-
-### ux focused FUTURE
-k autocomplete # auto setup autocomplete for kelper and kubectl by checking shell and configuring for suported shells
+kelp <any kubectl args>
+kelp -list-pods -namespace <ns>     # list pods + their images
+kelp -kubeconfig <path> <args>      # use a specific kubeconfig
 ```
 
-## in action
+| Flag           | Default     | Description                                            |
+| -------------- | ----------- | ------------------------------------------------------ |
+| `-kubeconfig`  | discovery\* | Path to the kubeconfig file.                           |
+| `-namespace`   | `default`   | Namespace for `-list-pods`.                            |
+| `-list-pods`   | `false`     | List pods with their init containers and containers.   |
 
-### Secrets
+\* When unset, the standard `KUBECONFIG` env var / `~/.kube/config` discovery
+is used.
 
-Auto decodes and prints out the key and decoded value:
+## In action
+
+### Secrets — auto-decoded
+
+Any `get secret ... -o yaml` has its `data` base64-decoded in place:
 
 ```bash
-user3@workstation:~/git/test-cluster$ k get secret -n kiali grafana-auth -o yaml
-password: prom-operator
+$ kelp get secret -n kiali grafana-auth -o yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-auth
+  namespace: kiali
+data:
+  password: prom-operator
 ```
 
-### -o yaml
+### `-o yaml` — cleaned up
 
-Any `-o yaml` that is not a secret, `kelper` cleans up the output by removing the auto mutations Kubernetes throws in there. The output is usually perfect for copying to a yaml file as there are no cumbersome fields like UUID, timestamps, status, etc.
+For any non-secret `-o yaml`, `kelp` removes the auto-mutated fields
+(`metadata.uid`, `metadata.creationTimestamp`, `status`) so the result is ready
+to drop into a YAML file:
 
 ```bash
-user3@workstation:~/git/test-cluster$ k get po -n flux-system helm-controller-678f5576df-g7scx -o yaml
+$ kelp get po -n flux-system helm-controller-678f5576df-g7scx -o yaml
 apiVersion: v1
 kind: Pod
 metadata:
@@ -65,290 +102,102 @@ metadata:
     prometheus.io/scrape: "true"
   labels:
     app: helm-controller
-    app.kubernetes.io/component: helm-controller
-    app.kubernetes.io/instance: flux-system
-    app.kubernetes.io/part-of: flux
-    app.kubernetes.io/version: v2.7.0
-    pod-template-hash: 678f5576df
   name: helm-controller-678f5576df-g7scx
   namespace: flux-system
 spec:
   containers:
-    - args:
-        - --events-addr=http://notification-controller.flux-system.svc.cluster.local./
-        - --watch-all-namespaces=true
-        - --log-level=info
-        - --log-encoding=json
-        - --enable-leader-election
-      env:
-        - name: RUNTIME_NAMESPACE
-          valueFrom:
-            fieldRef:
-              apiVersion: v1
-              fieldPath: metadata.namespace
-        - name: GOMEMLIMIT
-          valueFrom:
-            resourceFieldRef:
-              containerName: manager
-              divisor: "0"
-              resource: limits.memory
-      image: docker.io/fluxcd/helm-controller:v1.4.0
-      imagePullPolicy: IfNotPresent
-      livenessProbe:
-        failureThreshold: 3
-        httpGet:
-          path: /healthz
-          port: healthz
-          scheme: HTTP
-        periodSeconds: 10
-        successThreshold: 1
-        timeoutSeconds: 1
+    - image: docker.io/fluxcd/helm-controller:v1.4.0
       name: manager
-      ports:
-        - containerPort: 8080
-          name: http-prom
-          protocol: TCP
-        - containerPort: 9440
-          name: healthz
-          protocol: TCP
-      readinessProbe:
-        failureThreshold: 3
-        httpGet:
-          path: /readyz
-          port: healthz
-          scheme: HTTP
-        periodSeconds: 10
-        successThreshold: 1
-        timeoutSeconds: 1
-      resources:
-        limits:
-          cpu: "1"
-          memory: 1Gi
-        requests:
-          cpu: 100m
-          memory: 64Mi
-      securityContext:
-        allowPrivilegeEscalation: false
-        capabilities:
-          drop:
-            - ALL
-        readOnlyRootFilesystem: true
-        runAsNonRoot: true
-        seccompProfile:
-          type: RuntimeDefault
-      terminationMessagePath: /dev/termination-log
-      terminationMessagePolicy: File
-      volumeMounts:
-        - mountPath: /tmp
-          name: temp
-        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
-          name: kube-api-access-msmzp
-          readOnly: true
-  dnsPolicy: ClusterFirst
-  enableServiceLinks: true
-  nodeName: flux-control-plane
-  nodeSelector:
-    kubernetes.io/os: linux
-  preemptionPolicy: PreemptLowerPriority
-  priority: 2000000000
-  priorityClassName: system-cluster-critical
-  restartPolicy: Always
-  schedulerName: default-scheduler
-  securityContext:
-    fsGroup: 1337
-  serviceAccount: helm-controller
-  serviceAccountName: helm-controller
-  terminationGracePeriodSeconds: 600
-  tolerations:
-    - effect: NoExecute
-      key: node.kubernetes.io/not-ready
-      operator: Exists
-      tolerationSeconds: 300
-    - effect: NoExecute
-      key: node.kubernetes.io/unreachable
-      operator: Exists
-      tolerationSeconds: 300
-  volumes:
-    - emptyDir: {}
-      name: temp
-    - name: kube-api-access-msmzp
-      projected:
-        defaultMode: 420
-        sources:
-          - serviceAccountToken:
-              expirationSeconds: 3607
-              path: token
-          - configMap:
-              items:
-                - key: ca.crt
-                  path: ca.crt
-              name: kube-root-ca.crt
-          - downwardAPI:
-              items:
-                - fieldRef:
-                    apiVersion: v1
-                    fieldPath: metadata.namespace
-                  path: namespace
+      ...
 ```
 
-### Healthcheck
-
-This checks for any services in the cluster not running properly. Unlike a basic check just to see if pods are ready or if the number ready matches the number expected, this checks for deployments, statefulsets, daemonsets, and jobs to ensure they are healthy to also catch broken pods that have not been scheduled (kyverno can stop them, as can some helm hooks and other things).
-
-In the example below, we can see that the `istio-operator` namespace has what looks to be a fully functional deployment when running `k get pods -n istio-operator` but our healthcheck found that a job had failed.
+### `-list-pods` — pods and their images
 
 ```bash
-user3@workstation:~/git/test-cluster$ k get po -n istio-operator
-NAME                              READY   STATUS    RESTARTS   AGE
-istio-operator-7765959ff8-fpsnz   1/1     Running   0          20h
-user3@workstation:~/git/test-cluster$ k health -A
-Unhealthy pods:
-Unhealthy applications (deploy,sts,rs,ds,job,cronjob):
-istio-operator   job.batch/istiod-hook   Failed   0/1   19h   19h
+$ kelp -list-pods -namespace kyverno
+Pod: kyverno-admission-controller-5d8986c8b6-2g7gr, Namespace: kyverno
+Init Containers:
+  Name: kyverno-pre, Image: registry1.dso.mil/ironbank/opensource/kyverno/kyvernopre:v1.13.4
+Containers:
+  Name: kyverno, Image: registry1.dso.mil/ironbank/opensource/kyverno:v1.13.4
 ```
 
-### Images
+## API-server load balancing
 
-This prints out the pod name, names of any initContainers and Containers, and the images those containers are using.
+`kubectl` accepts one — and only one — `server:` per cluster in a kubeconfig.
+If that endpoint is down, you are stuck. `kelp` lifts that limit: list multiple
+api-server endpoints, comma-delimited, in the `server:` field, and `kelp`
+probes them in order and uses the first one that is reachable.
+
+### Configure it
+
+```yaml
+# ~/.kube/config
+apiVersion: v1
+kind: Config
+clusters:
+  - name: prod
+    cluster:
+      certificate-authority-data: <ca>
+      # comma-delimited list of api-server endpoints
+      server: https://10.0.0.1:6443,https://10.0.0.2:6443,https://10.0.0.3:6443
+contexts:
+  - name: prod
+    context:
+      cluster: prod
+      user: prod-admin
+current-context: prod
+users:
+  - name: prod-admin
+    user:
+      client-certificate-data: <cert>
+      client-key-data: <key>
+```
+
+### How it behaves
+
+On each invocation `kelp`:
+
+1. Reads the current context's `server` field and splits it on commas.
+2. Probes each endpoint in order (a 2s TCP dial).
+3. Logs a line to stdout for every endpoint that is down and moves on.
+4. Uses the first reachable endpoint by rewriting a temporary single-server
+   kubeconfig and handing it to `kubectl` / the client.
+5. If every endpoint is exhausted, exits non-zero with a `not connected` error.
+
+Example, first endpoint down:
 
 ```bash
-user3@workstation:~/git/test-cluster$ k images -n kyverno
-
-pod: kyverno-admission-controller-5d8986c8b6-2g7gr (-n kyverno):
-
-  initContainers: 
-    kyverno-pre: registry1.dso.mil/ironbank/opensource/kyverno/kyvernopre:v1.13.4
-
-  containers: 
-    kyverno: registry1.dso.mil/ironbank/opensource/kyverno:v1.13.4
-
-pod: kyverno-background-controller-75c6b48976-t4hvx (-n kyverno):
-
-  initContainers: 
-
-  containers: 
-    controller: registry1.dso.mil/ironbank/opensource/kyverno/kyverno/background-controller:v1.13.4
-
-pod: kyverno-cleanup-controller-7b868db7cb-q6j89 (-n kyverno):
-
-  initContainers: 
-
-  containers: 
-    controller: registry1.dso.mil/ironbank/opensource/kyverno/kyverno/cleanup-controller:v1.13.4
-
-pod: kyverno-reports-controller-5f9b7f6f7f-cn75t (-n kyverno):
-
-  initContainers: 
-
-  containers: 
-    controller: registry1.dso.mil/ironbank/opensource/kyverno/kyverno/reports-controller:v1.13.4
+$ kelp get pods -n flux-system
+api-server https://10.0.0.1:6443 unreachable (dial tcp 10.0.0.1:6443: i/o timeout); trying next endpoint...
+api-server https://10.0.0.2:6443 reachable; using it
+NAME                                READY   STATUS    RESTARTS   AGE
+helm-controller-678f5576df-g7scx    1/1     Running   0          20h
 ```
 
-### Resources
-
-This prints out the configured `requests:` and `limits:` resources for each container in a pod.
+All endpoints down:
 
 ```bash
-user3@workstation:~/git/test-cluster$ k resources -n kyverno
-
-pod: kyverno-admission-controller-5d8986c8b6-2g7gr (-n kyverno):
-
-  initContainers: 
-    kyverno-pre: 
-        resources:
-        limits:
-          cpu: "1"
-          memory: 1Gi
-        requests:
-          cpu: 10m
-          memory: 64Mi
-
-  containers: 
-    kyverno: 
-        resources:
-        limits:
-          cpu: 500m
-          memory: 512Mi
-        requests:
-          cpu: 100m
-          memory: 128Mi
-
-pod: kyverno-background-controller-75c6b48976-t4hvx (-n kyverno):
-
-  initContainers: 
-
-  containers: 
-    controller: 
-        resources:
-        limits:
-          memory: 128Mi
-        requests:
-          cpu: 100m
-          memory: 64Mi
-
-pod: kyverno-cleanup-controller-7b868db7cb-q6j89 (-n kyverno):
-
-  initContainers: 
-
-  containers: 
-    controller: 
-        resources:
-        limits:
-          memory: 128Mi
-        requests:
-          cpu: 100m
-          memory: 64Mi
-
-pod: kyverno-reports-controller-5f9b7f6f7f-cn75t (-n kyverno):
-
-  initContainers: 
-
-  containers: 
-    controller: 
-        resources:
-        limits:
-          memory: 128Mi
-        requests:
-          cpu: 100m
-          memory: 64Mi
+$ kelp get pods
+api-server https://10.0.0.1:6443 unreachable (dial tcp 10.0.0.1:6443: i/o timeout); trying next endpoint...
+api-server https://10.0.0.2:6443 unreachable (dial tcp 10.0.0.2:6443: i/o timeout); trying next endpoint...
+api-server https://10.0.0.3:6443 unreachable (dial tcp 10.0.0.3:6443: i/o timeout); trying next endpoint...
+not connected: all 3 api-server endpoints unreachable
 ```
 
-### Volumes
+A single (non-delimited) `server:` value behaves exactly as before — no probing,
+no temp kubeconfig.
 
-Prints out the configured `volumeMounts` per container in a pod as well as the `volumes` configuration per pod.
+## Releases & images
 
-```bash
-user3@workstation:~/git/test-cluster$ k volumes -n istio-operator
+Every push to `main` runs the [`release`](.github/workflows/release.yml)
+workflow, which:
 
-pod: istio-operator-7765959ff8-fpsnz (-n istio-operator):
+- cross-compiles `kelp` for linux/macOS (amd64 + arm64) and windows (amd64) and
+  attaches them to a GitHub Release, and
+- builds and pushes the container image to
+  `ghcr.io/jthunderbird/kelper` (`:latest`, the release tag, and the commit SHA).
 
-  initContainers: 
+## License
 
-  containers: 
-    istio-operator: 
-        volumeMounts:
-        - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
-          name: kube-api-access-8nh58
-          readOnly: true
-
-  shared volumes for istio-operator-7765959ff8-fpsnz pod:
-      volumes:
-        - name: kube-api-access-8nh58
-          projected:
-            defaultMode: 420
-            sources:
-              - serviceAccountToken:
-                  expirationSeconds: 3607
-                  path: token
-              - configMap:
-                  items:
-                    - key: ca.crt
-                      path: ca.crt
-                  name: kube-root-ca.crt
-              - downwardAPI:
-                  items:
-                    - fieldRef:
-                        apiVersion: v1
-                        fieldPath: metadata.namespace
-                      path: namespace
-```
+See [LICENSE](LICENSE).

@@ -42,8 +42,17 @@ func main() {
 	listPods := flag.Bool("list-pods", false, "List all pods in the namespace along with their init containers and containers")
 	flag.Parse()
 
+	// Resolve a single live api-server from the (possibly comma-delimited)
+	// kubeconfig server field, giving the binary client-side failover.
+	resolved, cleanup, err := resolveKubeconfig(*kubeconfig)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	defer cleanup()
+
 	if *listPods {
-		listAllPods(*kubeconfig, *namespace)
+		listAllPods(resolved, *namespace)
 		return
 	}
 
@@ -53,11 +62,15 @@ func main() {
 	}
 
 	cmd := exec.Command("kubectl", flag.Args()...)
+	if resolved != "" {
+		// Hand kubectl the resolved single-server kubeconfig.
+		cmd.Env = append(os.Environ(), "KUBECONFIG="+resolved)
+	}
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = os.Stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		fmt.Printf("Error running kubectl: %v\n", err)
 		return

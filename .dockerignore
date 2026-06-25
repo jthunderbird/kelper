@@ -1,0 +1,10 @@
+.git
+.github
+.claude
+dist
+kelp
+main
+*.exe
+README.md
+LICENSE
+kelper
