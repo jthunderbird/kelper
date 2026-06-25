@@ -23,47 +23,28 @@ jobs:
         # Monotonic, human-readable tag for each push to main.
         run: echo "tag=v1.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
-  binaries:
+  release:
     needs: version
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - { goos: linux, goarch: amd64 }
-          - { goos: linux, goarch: arm64 }
-          - { goos: darwin, goarch: amd64 }
-          - { goos: darwin, goarch: arm64 }
-          - { goos: windows, goarch: amd64 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.22"
           cache: true
-      - name: Build
-        env:
-          CGO_ENABLED: "0"
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+      - name: Cross-compile all targets
+        # Build every target on one runner so there is no cross-job artifact
+        # round-trip (the upload/download-artifact step was the failure point).
         run: |
-          ext=""
-          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          out="dist/kelper-${GOOS}-${GOARCH}${ext}"
           mkdir -p dist
-          go build -trimpath -ldflags="-s -w" -o "$out" ./cmd/kelper
-      - uses: actions/upload-artifact@v4
-        with:
-          name: kelper-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/*
-
-  release:
-    needs: [version, binaries]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64; do
+            export GOOS="${target%/*}" GOARCH="${target#*/}"
+            ext=""
+            if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+            echo "building kelper-${GOOS}-${GOARCH}${ext}"
+            CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" \
+              -o "dist/kelper-${GOOS}-${GOARCH}${ext}" ./cmd/kelper
+          done
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version.outputs.tag }}

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="kelper-logo.png" alt="kelper logo" width="320"/>
+</p>
+
 # kelper
 
 A small Go wrapper around `kubectl` that makes everyday cluster work nicer:
