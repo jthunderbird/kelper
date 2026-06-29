@@ -25,9 +25,9 @@ type Metadata struct {
 }
 
 type Secret struct {
-	APIVersion string   `yaml:"apiVersion"`
-	Kind       string   `yaml:"kind"`
-	Metadata   Metadata `yaml:"metadata"`
+	APIVersion string            `yaml:"apiVersion"`
+	Kind       string            `yaml:"kind"`
+	Metadata   Metadata          `yaml:"metadata"`
 	Data       map[string]string `yaml:"data"`
 }
 
@@ -96,6 +96,17 @@ func runKubectlPassthrough(global *globalOpts, args []string) {
 		// Hand kubectl the resolved single-server kubeconfig.
 		cmd.Env = append(os.Environ(), "KUBECONFIG="+resolved)
 	}
+	if shouldStreamKubectl(args) {
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error running kubectl: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = os.Stderr
@@ -115,6 +126,18 @@ func runKubectlPassthrough(global *globalOpts, args []string) {
 	default:
 		fmt.Print(output)
 	}
+}
+
+func shouldStreamKubectl(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == "exec" {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeAndPrintSecrets(output string) {
