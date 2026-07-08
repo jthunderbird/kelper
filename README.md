@@ -51,7 +51,8 @@ container image already includes it).
 ## Usage
 
 `kelper` has a few native commands and otherwise passes input straight through
-to `kubectl`, intercepting the output to decode secrets and tidy YAML:
+to `kubectl`. For `get ... -o yaml`, it intercepts output to decode secrets and
+tidy YAML:
 
 ```bash
 kelper <command> [args]            # run a native command
@@ -113,7 +114,7 @@ data:
 
 ### `-o yaml` — cleaned up
 
-For any non-secret `-o yaml`, `kelper` removes the auto-mutated fields
+For any non-secret `get ... -o yaml`, `kelper` removes the auto-mutated fields
 (`metadata.uid`, `metadata.creationTimestamp`, `status`) so the result is ready
 to drop into a YAML file:
 

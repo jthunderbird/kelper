@@ -81,8 +81,9 @@ func parseGlobal(args []string) (*globalOpts, []string) {
 }
 
 // runKubectlPassthrough runs kubectl with the given args against the resolved
-// (failover-aware) kubeconfig and applies kelper's output transforms: Secrets
-// are base64-decoded and noisy metadata is stripped on '-o yaml' output.
+// (failover-aware) kubeconfig. It streams by default so interactive commands
+// keep kubectl's stdio behavior, and only buffers output for kelper's explicit
+// YAML transforms.
 func runKubectlPassthrough(global *globalOpts, args []string) {
 	resolved, cleanup, err := resolveKubeconfig(global.kubeconfig)
 	if err != nil {
@@ -96,7 +97,7 @@ func runKubectlPassthrough(global *globalOpts, args []string) {
 		// Hand kubectl the resolved single-server kubeconfig.
 		cmd.Env = append(os.Environ(), "KUBECONFIG="+resolved)
 	}
-	if shouldStreamKubectl(args) {
+	if !shouldTransformKubectlOutput(args) {
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -117,25 +118,107 @@ func runKubectlPassthrough(global *globalOpts, args []string) {
 	}
 
 	output := out.String()
-	joined := strings.Join(args, " ")
 	switch {
-	case strings.Contains(output, "kind: Secret") && strings.Contains(joined, "-o yaml"):
+	case strings.Contains(output, "kind: Secret"):
 		decodeAndPrintSecrets(output)
-	case strings.Contains(joined, "-o yaml"):
-		removeMetadataFields(output)
 	default:
-		fmt.Print(output)
+		removeMetadataFields(output)
 	}
 }
 
-func shouldStreamKubectl(args []string) bool {
+func shouldTransformKubectlOutput(args []string) bool {
+	if kubectlVerb(args) != "get" {
+		return false
+	}
+	if hasWatchFlag(args) {
+		return false
+	}
+	return kubectlOutputFormat(args) == "yaml"
+}
+
+func kubectlVerb(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return ""
+		}
+		if arg == "" {
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			if consumesNextArg(arg) && i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+		return arg
+	}
+	return ""
+}
+
+func hasWatchFlag(args []string) bool {
 	for _, arg := range args {
 		if arg == "--" {
 			return false
 		}
-		if arg == "exec" {
+		if arg == "-w" || arg == "--watch" || strings.HasPrefix(arg, "--watch=") {
 			return true
 		}
+	}
+	return false
+}
+
+func kubectlOutputFormat(args []string) string {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return ""
+		}
+		switch {
+		case arg == "-o" || arg == "--output":
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+			return ""
+		case strings.HasPrefix(arg, "-o="):
+			return strings.TrimPrefix(arg, "-o=")
+		case strings.HasPrefix(arg, "--output="):
+			return strings.TrimPrefix(arg, "--output=")
+		case strings.HasPrefix(arg, "-o") && len(arg) > len("-o"):
+			return strings.TrimPrefix(arg, "-o")
+		}
+	}
+	return ""
+}
+
+func consumesNextArg(arg string) bool {
+	if strings.Contains(arg, "=") {
+		return false
+	}
+
+	switch arg {
+	case "-n", "--namespace",
+		"--context",
+		"--kubeconfig",
+		"--cluster",
+		"--user",
+		"--as",
+		"--as-group",
+		"--as-uid",
+		"--cache-dir",
+		"--certificate-authority",
+		"--client-certificate",
+		"--client-key",
+		"--profile",
+		"--request-timeout",
+		"--server",
+		"--tls-server-name",
+		"--token",
+		"--username",
+		"--password",
+		"-o",
+		"--output":
+		return true
 	}
 	return false
 }
@@ -174,12 +257,12 @@ func removeMetadataFields(output string) {
 		return
 	}
 
-	// clean up yaml output
-	if metadata, ok := resource["metadata"].(map[string]interface{}); ok {
+	// clean up yaml output. yaml.v2 decodes nested mappings as
+	// map[interface{}]interface{}, not map[string]interface{}.
+	if metadata, ok := resource["metadata"].(map[interface{}]interface{}); ok {
 		delete(metadata, "creationTimestamp")
 		delete(metadata, "uid")
 	}
-	delete(resource, "metadata.uid")
 	// delete(resource, "metadata.generation")
 	// delete(resource, "metadata.ownerReferences")
 	// delete(resource, "metadata.generateName")

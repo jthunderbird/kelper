@@ -20,10 +20,10 @@ type globalOpts struct {
 // command is a single native kelper subcommand.
 type command struct {
 	name     string
-	summary  string         // one-line description for the command list
-	usage    string         // usage line shown in command help
-	flagDocs [][2]string    // {flag, description} pairs rendered in command help
-	examples []string       // example invocations
+	summary  string              // one-line description for the command list
+	usage    string              // usage line shown in command help
+	flagDocs [][2]string         // {flag, description} pairs rendered in command help
+	examples []string            // example invocations
 	flags    func(*flag.FlagSet) // registers the command's real flags for parsing
 	run      func(*globalOpts, []string)
 }
@@ -180,9 +180,9 @@ func printRootHelp(w io.Writer) {
 	tw.Flush()
 
 	fmt.Fprint(w, "\nPASSTHROUGH:\n")
-	fmt.Fprint(w, "  Any input kelper does not recognize is forwarded to kubectl. On '-o yaml'\n")
-	fmt.Fprint(w, "  output, Secrets are base64-decoded and noisy fields (uid, creationTimestamp,\n")
-	fmt.Fprint(w, "  status) are stripped automatically.\n")
+	fmt.Fprint(w, "  Any input kelper does not recognize is forwarded to kubectl. On 'get ... -o\n")
+	fmt.Fprint(w, "  yaml' output, Secrets are base64-decoded and noisy fields (uid,\n")
+	fmt.Fprint(w, "  creationTimestamp, status) are stripped automatically.\n")
 
 	fmt.Fprint(w, "\nEXAMPLES:\n")
 	for _, e := range []string{
