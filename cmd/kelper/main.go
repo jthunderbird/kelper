@@ -18,6 +18,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+// appVersion is overridden at build time via -ldflags "-X main.appVersion=...".
+var appVersion = "dev"
+
 // kelperSubcommands is the set of first-level subcommands that kelper handles
 // natively. Everything else is transparently forwarded to kubectl.
 var kelperSubcommands = map[string]bool{
@@ -49,6 +52,11 @@ func main() {
 	args := os.Args[1:]
 	if len(args) > 0 {
 		first := args[0]
+		// Handle version flags up front.
+		if first == "-v" || first == "--version" {
+			fmt.Printf("kelper %s\n", appVersion)
+			return
+		}
 		// Strip leading dashes to find the base flag name (e.g. --help → help).
 		isHelpFlag := first == "--help" || first == "-h"
 		if !isHelpFlag && !kelperSubcommands[first] {

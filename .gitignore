@@ -1,1 +1,8 @@
-kelper
+# Compiled binaries - built by CI, never committed
+/kelper
+/main
+/dist/
+*.exe
+
+# Local kubeconfigs / scratch
+kelper-kubeconfig-*.yaml
