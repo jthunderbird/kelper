@@ -63,25 +63,52 @@ lightweight reference alternative.
 
 ## Shell Completion
 
-The completion script must be **sourced** by your shell, not executed. To try it
-in the current shell:
+Generate the script with `--output` (`-o`) and run the two commands it prints:
 
 ```bash
-source <(kelper completion bash)     # bash (needs the bash-completion package)
-source <(kelper completion zsh)      # zsh  (needs `autoload -U compinit && compinit`)
-kelper completion fish | source      # fish
+kelper completion bash -o ~/.kelper-completion.bash
 ```
 
-To install it permanently, use `--output` (`-o`) to write the script straight to
-the right location:
+```
+Wrote bash completion to /home/you/.kelper-completion.bash
+
+Run these two commands:
+
+  echo "source /home/you/.kelper-completion.bash" >> ~/.bashrc
+  source ~/.bashrc
+```
+
+Supported shells: `bash`, `zsh`, `fish`, `powershell`. Run
+`kelper completion --help` to see them. Without `--output` the script goes to
+stdout, so it can also be sourced directly:
 
 ```bash
-kelper completion bash -o ~/.local/share/bash-completion/completions/kelper
-kelper completion zsh  -o "${fpath[1]}/_kelper"
-kelper completion fish -o ~/.config/fish/completions/kelper.fish
+source <(kelper completion bash)
 ```
 
-`powershell` is also supported. Without `--output` the script goes to stdout.
+The script must be **sourced**, not executed. bash additionally needs the
+`bash-completion` package installed; zsh needs `autoload -U compinit && compinit`
+in `~/.zshrc`.
+
+### Completing `k` and other aliases
+
+kelper is commonly symlinked or copied to a shorter name such as `k`. The
+generated script completes `k` as well as `kelper` by default:
+
+```bash
+ln -s "$(which kelper)" ~/.local/bin/k   # k now completes too
+```
+
+Use `--alias` to change the list, or to turn it off:
+
+```bash
+kelper completion bash --alias k,kc -o ~/.kelper-completion.bash
+kelper completion bash --alias ""     -o ~/.kelper-completion.bash
+```
+
+For zsh, aliases are registered when the script is sourced. Dropping the file
+into `$fpath` for autoloading picks up `kelper` only, so prefer the
+`source`-from-`~/.zshrc` approach shown above.
 
 ## Usage
 
@@ -101,7 +128,7 @@ kelper --kubeconfig <path> <args>  # use a specific kubeconfig
 | `resources`   | Show resource limits and requests per pod.                               |
 | `volumes`     | Show volume mounts and pod volumes per pod.                              |
 | `kubeconfig`  | Generate kubeconfig files for cluster users (wizard when run bare).      |
-| `completion`  | Generate shell completion scripts (bash/zsh/fish/powershell).            |
+| `completion`  | Generate shell completion scripts (bash/zsh/fish/powershell).           |
 
 Aliases: `health`; `image`/`imgs`/`img`; `resource`/`res`; `volume`/`vols`/`vol`.
 
