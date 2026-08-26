@@ -63,11 +63,25 @@ lightweight reference alternative.
 
 ## Shell Completion
 
+The completion script must be **sourced** by your shell, not executed. To try it
+in the current shell:
+
 ```bash
-kelper completion bash   >> ~/.bashrc
-kelper completion zsh    >> ~/.zshrc
-kelper completion fish   > ~/.config/fish/completions/kelper.fish
+source <(kelper completion bash)     # bash (needs the bash-completion package)
+source <(kelper completion zsh)      # zsh  (needs `autoload -U compinit && compinit`)
+kelper completion fish | source      # fish
 ```
+
+To install it permanently, use `--output` (`-o`) to write the script straight to
+the right location:
+
+```bash
+kelper completion bash -o ~/.local/share/bash-completion/completions/kelper
+kelper completion zsh  -o "${fpath[1]}/_kelper"
+kelper completion fish -o ~/.config/fish/completions/kelper.fish
+```
+
+`powershell` is also supported. Without `--output` the script goes to stdout.
 
 ## Usage
 
@@ -87,7 +101,7 @@ kelper --kubeconfig <path> <args>  # use a specific kubeconfig
 | `resources`   | Show resource limits and requests per pod.                               |
 | `volumes`     | Show volume mounts and pod volumes per pod.                              |
 | `kubeconfig`  | Generate kubeconfig files for cluster users (wizard when run bare).      |
-| `completion`  | Generate shell completion scripts (bash/zsh/fish).                       |
+| `completion`  | Generate shell completion scripts (bash/zsh/fish/powershell).            |
 
 Aliases: `health`; `image`/`imgs`/`img`; `resource`/`res`; `volume`/`vols`/`vol`.
 
@@ -159,10 +173,39 @@ namespace selector and live refresh.
 
 ### `kubeconfig`
 
+Generates a client certificate, approves its CSR, creates matching RBAC, and
+writes a ready-to-use kubeconfig.
+
 ```bash
-kelper kubeconfig readonly --user john --namespace kyverno --output john-ro.yaml
 kelper kubeconfig                 # launches the interactive wizard
+kelper kubeconfig readonly        # cluster-wide readonly, generated username
+kelper kubeconfig readonly --user john -n kyverno -o john-ro.yaml
+kelper kubeconfig admin --user jane
+kelper kubeconfig scoped --user ci -n build --resources pods,configmaps --verbs get,list
 ```
+
+| Account type | Grants                                        |
+| ------------ | --------------------------------------------- |
+| `readonly`   | `get`, `list`, `watch` on everything          |
+| `admin`      | full access                                   |
+| `scoped`     | the `--resources`/`--verbs`/`--apigroups` you specify |
+
+**Scope.** Accounts are **cluster-wide by default** (ClusterRole +
+ClusterRoleBinding). Pass `--namespace`/`-n` to restrict the account to a single
+namespace instead, which creates a Role + RoleBinding and sets that namespace as
+the generated context's default.
+
+**Username.** `--user` is optional. When omitted, a name of the form
+`<type>-<8 hex chars>` is generated, e.g. `readonly-3f9a1c07`. A supplied
+username must be a valid RFC 1123 subdomain, since it is embedded in the Role
+and RoleBinding names.
+
+**API groups.** For `scoped`, `--apigroups` defaults to `*`. Use `core` to
+select the core (legacy, unnamed) API group — pods, services, configmaps and so
+on: `--apigroups core,apps`.
+
+Re-running for an existing username issues a fresh certificate and updates that
+user's Role/RoleBinding in place.
 
 ## API-server load balancing
 

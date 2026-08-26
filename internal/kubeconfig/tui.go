@@ -21,9 +21,9 @@ const (
 	stepAccountType wizardStep = iota
 	stepUsername
 	stepNamespace
-	stepAPIGroups  // scoped only
-	stepResources  // scoped only
-	stepVerbs      // scoped only
+	stepAPIGroups // scoped only
+	stepResources // scoped only
+	stepVerbs     // scoped only
 	stepOutput
 	stepConfirm
 	stepDone
@@ -32,15 +32,13 @@ const (
 var accountTypes = []AccountType{
 	AccountTypeReadonly,
 	AccountTypeAdmin,
-	AccountTypeCluster,
 	AccountTypeScoped,
 }
 
 var accountTypeLabels = map[AccountType]string{
-	AccountTypeReadonly: "Readonly (namespace-scoped)",
-	AccountTypeAdmin:    "Admin (namespace-scoped)",
-	AccountTypeCluster:  "Cluster-wide readonly",
-	AccountTypeScoped:   "Resource-scoped (custom)",
+	AccountTypeReadonly: "Readonly (get, list, watch on everything)",
+	AccountTypeAdmin:    "Admin (full access)",
+	AccountTypeScoped:   "Resource-scoped (custom resources and verbs)",
 }
 
 type wizardModel struct {
@@ -131,20 +129,20 @@ func (m wizardModel) advanceText() wizardModel {
 	switch m.step {
 	case stepUsername:
 		if val == "" {
-			m.errMsg = "username cannot be empty"
+			generated, err := GenerateUsername(m.opts.AccountType)
+			if err != nil {
+				m.errMsg = err.Error()
+				return m
+			}
+			val = generated
+		} else if err := ValidateUsername(val); err != nil {
+			m.errMsg = err.Error()
 			return m
 		}
 		m.opts.Username = val
-		if m.opts.AccountType == AccountTypeCluster {
-			m.step = stepOutput
-		} else {
-			m.step = stepNamespace
-		}
+		m.step = stepNamespace
 	case stepNamespace:
-		if val == "" {
-			m.errMsg = "namespace cannot be empty"
-			return m
-		}
+		// Blank namespace means a cluster-wide account.
 		m.opts.Namespace = val
 		if m.opts.AccountType == AccountTypeScoped {
 			m.step = stepAPIGroups
@@ -152,10 +150,7 @@ func (m wizardModel) advanceText() wizardModel {
 			m.step = stepOutput
 		}
 	case stepAPIGroups:
-		m.opts.APIGroups = splitCSV(val)
-		if len(m.opts.APIGroups) == 0 {
-			m.opts.APIGroups = []string{"*"}
-		}
+		m.opts.APIGroups = ParseAPIGroups(val)
 		m.step = stepResources
 	case stepResources:
 		if val == "" {
@@ -201,11 +196,11 @@ func (m wizardModel) View() string {
 			}
 		}
 	case stepUsername:
-		b.WriteString("Username: " + m.textInput + "█\n")
+		b.WriteString("Username (leave blank to generate one): " + m.textInput + "█\n")
 	case stepNamespace:
-		b.WriteString("Namespace: " + m.textInput + "█\n")
+		b.WriteString("Namespace (leave blank for cluster-wide): " + m.textInput + "█\n")
 	case stepAPIGroups:
-		b.WriteString("API groups (comma-separated, * for all): " + m.textInput + "█\n")
+		b.WriteString("API groups (comma-separated, \"core\" for the core group, * for all): " + m.textInput + "█\n")
 	case stepResources:
 		b.WriteString("Resources (comma-separated, e.g. pods,secrets): " + m.textInput + "█\n")
 	case stepVerbs:
@@ -216,8 +211,10 @@ func (m wizardModel) View() string {
 		b.WriteString("Confirm:\n\n")
 		b.WriteString(fmt.Sprintf("  Type:      %s\n", accountTypeLabels[m.opts.AccountType]))
 		b.WriteString(fmt.Sprintf("  Username:  %s\n", m.opts.Username))
-		if m.opts.Namespace != "" {
-			b.WriteString(fmt.Sprintf("  Namespace: %s\n", m.opts.Namespace))
+		if m.opts.ClusterWide() {
+			b.WriteString("  Scope:     cluster-wide (all namespaces)\n")
+		} else {
+			b.WriteString(fmt.Sprintf("  Scope:     namespace %s\n", m.opts.Namespace))
 		}
 		if len(m.opts.Verbs) > 0 {
 			b.WriteString(fmt.Sprintf("  Verbs:     %s\n", strings.Join(m.opts.Verbs, ", ")))
@@ -244,16 +241,16 @@ func (m wizardModel) totalSteps() int {
 	switch m.opts.AccountType {
 	case AccountTypeScoped:
 		return 8 // type, user, ns, apigroups, resources, verbs, output, confirm
-	case AccountTypeCluster:
-		return 4 // type, user, output, confirm
 	default:
 		return 5 // type, user, ns, output, confirm
 	}
 }
 
 // runTUI launches the kubeconfig wizard and runs the result if confirmed.
-func runTUI() error {
+// kubeconfigPath is the value of the root --kubeconfig flag, empty when unset.
+func runTUI(kubeconfigPath string) error {
 	m := NewWizardModel()
+	m.opts.KubeconfigPath = kubeconfigPath
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	result, err := p.Run()
 	if err != nil {

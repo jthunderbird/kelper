@@ -7,9 +7,11 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,11 +20,11 @@ import (
 	certificatesv1 "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"sigs.k8s.io/yaml"
 )
 
 // AccountType represents the kubeconfig account type.
@@ -31,7 +33,6 @@ type AccountType string
 const (
 	AccountTypeReadonly AccountType = "readonly"
 	AccountTypeAdmin    AccountType = "admin"
-	AccountTypeCluster  AccountType = "cluster"
 	AccountTypeScoped   AccountType = "scoped"
 )
 
@@ -39,35 +40,92 @@ const (
 type Options struct {
 	AccountType AccountType
 	Username    string
-	Namespace   string
-	Resources   []string
-	APIGroups   []string
-	Verbs       []string
-	OutputFile  string
-	SkipConfirm bool
+	// Namespace scopes the generated RBAC to a single namespace. When empty
+	// the account is cluster-wide (ClusterRole + ClusterRoleBinding).
+	Namespace      string
+	Resources      []string
+	APIGroups      []string
+	Verbs          []string
+	OutputFile     string
+	SkipConfirm    bool
+	KubeconfigPath string
 }
 
-// ValidateOptions returns an error if required options are missing.
-func ValidateOptions(opts Options) error {
-	if opts.Username == "" {
-		return fmt.Errorf("--user is required")
+// ClusterWide reports whether the account applies to every namespace.
+func (o Options) ClusterWide() bool {
+	return o.Namespace == ""
+}
+
+// usernamePattern matches usernames that are safe to embed in RBAC object
+// names, which must be valid RFC 1123 subdomains.
+var usernamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+
+// ValidateUsername returns an error if name cannot be used to build valid
+// Kubernetes object names for the generated Role and RoleBinding.
+func ValidateUsername(name string) error {
+	// Object names get a "-kelper-binding" suffix (15 chars) and must stay
+	// within the 253-character RFC 1123 subdomain limit.
+	const maxUsernameLen = 253 - len("-kelper-binding")
+	if len(name) > maxUsernameLen {
+		return fmt.Errorf("username %q is too long (max %d characters)", name, maxUsernameLen)
 	}
-	switch opts.AccountType {
-	case AccountTypeReadonly, AccountTypeAdmin:
-		if opts.Namespace == "" {
-			return fmt.Errorf("--namespace is required for %s account type", opts.AccountType)
+	if !usernamePattern.MatchString(name) {
+		return fmt.Errorf("invalid username %q: must be lowercase alphanumeric characters or '-', and must start and end with an alphanumeric character", name)
+	}
+	return nil
+}
+
+// GenerateUsername returns a unique username for the given account type, in
+// the form "<account-type>-<8 hex characters>".
+func GenerateUsername(accountType AccountType) (string, error) {
+	buf := make([]byte, 4)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generate username: %w", err)
+	}
+	return fmt.Sprintf("%s-%s", accountType, hex.EncodeToString(buf)), nil
+}
+
+// ValidateOptions returns an error if required options are missing or invalid.
+// Username and Namespace are both optional: an absent username is generated,
+// and an absent namespace means the account is cluster-wide.
+func ValidateOptions(opts Options) error {
+	if opts.Username != "" {
+		if err := ValidateUsername(opts.Username); err != nil {
+			return err
 		}
-	case AccountTypeScoped:
-		if opts.Namespace == "" {
-			return fmt.Errorf("--namespace is required for scoped account type")
-		}
+	}
+	if opts.AccountType == AccountTypeScoped {
 		if len(opts.Resources) == 0 {
 			return fmt.Errorf("--resources is required for scoped account type")
 		}
-	case AccountTypeCluster:
-		// No namespace required.
+		if len(opts.Verbs) == 0 {
+			return fmt.Errorf("--verbs cannot be empty for scoped account type")
+		}
+		if len(opts.APIGroups) == 0 {
+			return fmt.Errorf("--apigroups cannot be empty for scoped account type")
+		}
 	}
 	return nil
+}
+
+// coreAPIGroupAlias is how the core (legacy, unnamed) API group is spelled on
+// the command line, since an empty string is indistinguishable from an unset
+// flag once the comma-separated list is split.
+const coreAPIGroupAlias = "core"
+
+// ParseAPIGroups splits a comma-separated API group list, translating the
+// "core" alias to the empty-string core group. An empty list becomes "*".
+func ParseAPIGroups(s string) []string {
+	groups := splitCSV(s)
+	if len(groups) == 0 {
+		return []string{"*"}
+	}
+	for i, g := range groups {
+		if g == coreAPIGroupAlias {
+			groups[i] = ""
+		}
+	}
+	return groups
 }
 
 // GenerateRSAKey generates a 4096-bit RSA private key and returns PEM bytes.
@@ -83,91 +141,96 @@ func GenerateRSAKey() ([]byte, error) {
 	}), nil
 }
 
-// Command returns the cobra command tree for kubeconfig.
-func Command() *cobra.Command {
+// Command returns the cobra command tree for kubeconfig. kubeconfigPath points
+// at the value of the root --kubeconfig flag, which is resolved after flag
+// parsing, so it is dereferenced only once a subcommand runs.
+func Command(kubeconfigPath *string) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "kubeconfig",
 		Short: "Generate kubeconfig files for cluster users",
+		Long: "Generate kubeconfig files for cluster users.\n\n" +
+			"Accounts are cluster-wide by default. Pass --namespace to scope the\n" +
+			"generated Role and RoleBinding to a single namespace instead.",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// No subcommand → TUI wizard (implemented in Task 11).
-			return runTUI()
+			return runTUI(*kubeconfigPath)
 		},
 	}
-	root.AddCommand(readonlyCmd(), adminCmd(), clusterCmd(), scopedCmd())
+	root.AddCommand(
+		readonlyCmd(kubeconfigPath),
+		adminCmd(kubeconfigPath),
+		scopedCmd(kubeconfigPath),
+	)
 	return root
 }
 
-func readonlyCmd() *cobra.Command {
+func readonlyCmd(kubeconfigPath *string) *cobra.Command {
 	var opts Options
 	opts.AccountType = AccountTypeReadonly
 	cmd := &cobra.Command{
 		Use:   "readonly",
-		Short: "Create a namespace-scoped readonly kubeconfig",
-		RunE:  runNonInteractive(&opts),
+		Short: "Create a readonly kubeconfig (cluster-wide, or -n for one namespace)",
+		RunE:  runNonInteractive(&opts, kubeconfigPath),
 	}
 	addCommonFlags(cmd, &opts)
 	return cmd
 }
 
-func adminCmd() *cobra.Command {
+func adminCmd(kubeconfigPath *string) *cobra.Command {
 	var opts Options
 	opts.AccountType = AccountTypeAdmin
 	cmd := &cobra.Command{
 		Use:   "admin",
-		Short: "Create a namespace-scoped admin kubeconfig",
-		RunE:  runNonInteractive(&opts),
+		Short: "Create an admin kubeconfig (cluster-wide, or -n for one namespace)",
+		RunE:  runNonInteractive(&opts, kubeconfigPath),
 	}
 	addCommonFlags(cmd, &opts)
 	return cmd
 }
 
-func clusterCmd() *cobra.Command {
-	var opts Options
-	opts.AccountType = AccountTypeCluster
-	cmd := &cobra.Command{
-		Use:   "cluster",
-		Short: "Create a cluster-wide readonly kubeconfig",
-		RunE:  runNonInteractive(&opts),
-	}
-	cmd.Flags().StringVar(&opts.Username, "user", "", "username (required)")
-	cmd.Flags().StringVar(&opts.OutputFile, "output", "", "output file (default: stdout)")
-	cmd.Flags().BoolVarP(&opts.SkipConfirm, "yes", "y", false, "skip confirmation prompt")
-	return cmd
-}
-
-func scopedCmd() *cobra.Command {
+func scopedCmd(kubeconfigPath *string) *cobra.Command {
 	var opts Options
 	opts.AccountType = AccountTypeScoped
 	var resourcesStr, apiGroupsStr, verbsStr string
 	cmd := &cobra.Command{
 		Use:   "scoped",
-		Short: "Create a resource-scoped kubeconfig",
+		Short: "Create a resource-scoped kubeconfig (cluster-wide, or -n for one namespace)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Resources = splitCSV(resourcesStr)
-			opts.APIGroups = splitCSV(apiGroupsStr)
+			opts.APIGroups = ParseAPIGroups(apiGroupsStr)
 			opts.Verbs = splitCSV(verbsStr)
-			return runNonInteractive(&opts)(cmd, args)
+			return runNonInteractive(&opts, kubeconfigPath)(cmd, args)
 		},
 	}
 	addCommonFlags(cmd, &opts)
 	cmd.Flags().StringVar(&resourcesStr, "resources", "", "comma-separated resources (required)")
-	cmd.Flags().StringVar(&apiGroupsStr, "apigroups", "*", "comma-separated API groups")
+	cmd.Flags().StringVar(&apiGroupsStr, "apigroups", "*", `comma-separated API groups ("core" for the core group, "*" for all)`)
 	cmd.Flags().StringVar(&verbsStr, "verbs", "get,list,watch", "comma-separated verbs")
 	return cmd
 }
 
 func addCommonFlags(cmd *cobra.Command, opts *Options) {
-	cmd.Flags().StringVar(&opts.Username, "user", "", "username (required)")
-	cmd.Flags().StringVarP(&opts.Namespace, "namespace", "n", "", "namespace (required)")
+	cmd.Flags().StringVar(&opts.Username, "user", "", "username (default: generated, e.g. "+string(opts.AccountType)+"-1a2b3c4d)")
+	cmd.Flags().StringVarP(&opts.Namespace, "namespace", "n", "", "restrict the account to a single namespace (default: cluster-wide)")
 	cmd.Flags().StringVar(&opts.OutputFile, "output", "", "output file (default: stdout)")
 	cmd.Flags().BoolVarP(&opts.SkipConfirm, "yes", "y", false, "skip confirmation prompt")
 }
 
-func runNonInteractive(opts *Options) func(*cobra.Command, []string) error {
+func runNonInteractive(opts *Options, kubeconfigPath *string) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
+		if kubeconfigPath != nil {
+			opts.KubeconfigPath = *kubeconfigPath
+		}
 		if err := ValidateOptions(*opts); err != nil {
 			output.Errorf(os.Stderr, "%s", err)
 			os.Exit(1)
+		}
+		if opts.Username == "" {
+			generated, err := GenerateUsername(opts.AccountType)
+			if err != nil {
+				output.Errorf(os.Stderr, "%s", err)
+				os.Exit(1)
+			}
+			opts.Username = generated
 		}
 		printSummary(*opts)
 		if !opts.SkipConfirm {
@@ -188,14 +251,19 @@ func printSummary(opts Options) {
 	fmt.Println("\nSummary:")
 	fmt.Printf("  Type:      %s\n", opts.AccountType)
 	fmt.Printf("  Username:  %s\n", opts.Username)
-	if opts.Namespace != "" {
-		fmt.Printf("  Namespace: %s\n", opts.Namespace)
+	if opts.ClusterWide() {
+		fmt.Printf("  Scope:     cluster-wide (all namespaces)\n")
+	} else {
+		fmt.Printf("  Scope:     namespace %s\n", opts.Namespace)
 	}
 	if len(opts.Verbs) > 0 {
 		fmt.Printf("  Verbs:     %s\n", strings.Join(opts.Verbs, ", "))
 	}
 	if len(opts.Resources) > 0 {
 		fmt.Printf("  Resources: %s\n", strings.Join(opts.Resources, ", "))
+	}
+	if len(opts.APIGroups) > 0 {
+		fmt.Printf("  APIGroups: %s\n", strings.Join(displayAPIGroups(opts.APIGroups), ", "))
 	}
 	if opts.OutputFile != "" {
 		fmt.Printf("  Output:    %s\n", opts.OutputFile)
@@ -207,7 +275,7 @@ func printSummary(opts Options) {
 
 // Create executes the full kubeconfig generation flow.
 func Create(opts Options) error {
-	cs, err := buildClientset()
+	cs, err := buildClientset(opts.KubeconfigPath)
 	if err != nil {
 		return fmt.Errorf("connect to cluster: %w", err)
 	}
@@ -234,7 +302,7 @@ func Create(opts Options) error {
 	fmt.Println("done")
 
 	fmt.Print("Building kubeconfig... ")
-	kubeconfigYAML, err := buildKubeconfig(opts.Username, certPEM, keyPEM)
+	kubeconfigYAML, err := buildKubeconfig(opts, certPEM, keyPEM)
 	if err != nil {
 		return err
 	}
@@ -314,45 +382,67 @@ func submitAndApproveCSR(ctx context.Context, cs *kubernetes.Clientset, username
 	return nil, fmt.Errorf("timed out waiting for signed certificate")
 }
 
-func createRBAC(ctx context.Context, cs *kubernetes.Clientset, opts Options) error {
-	verbs := opts.Verbs
-	resources := opts.Resources
-	apiGroups := opts.APIGroups
-
+// policyRule returns the single RBAC rule implied by the account type. For
+// scoped accounts the caller-supplied resources, API groups and verbs are used
+// as-is.
+func policyRule(opts Options) rbacv1.PolicyRule {
 	switch opts.AccountType {
 	case AccountTypeReadonly:
-		verbs = []string{"get", "list", "watch"}
-		resources = []string{"*"}
-		apiGroups = []string{"*"}
+		return rbacv1.PolicyRule{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"get", "list", "watch"}}
 	case AccountTypeAdmin:
-		verbs = []string{"*"}
-		resources = []string{"*"}
-		apiGroups = []string{"*"}
-	case AccountTypeCluster:
-		verbs = []string{"get", "list", "watch"}
-		resources = []string{"*"}
-		apiGroups = []string{"*"}
+		return rbacv1.PolicyRule{APIGroups: []string{"*"}, Resources: []string{"*"}, Verbs: []string{"*"}}
+	default:
+		return rbacv1.PolicyRule{APIGroups: opts.APIGroups, Resources: opts.Resources, Verbs: opts.Verbs}
 	}
+}
 
+// createRBAC creates or updates the Role/ClusterRole and matching binding for
+// the account. Re-running for an existing username refreshes its permissions
+// in place, mirroring how the CSR is recreated on every run.
+func createRBAC(ctx context.Context, cs *kubernetes.Clientset, opts Options) error {
+	rule := policyRule(opts)
 	roleName := opts.Username + "-kelper-role"
 	bindingName := opts.Username + "-kelper-binding"
+	subjects := []rbacv1.Subject{{APIGroup: "rbac.authorization.k8s.io", Kind: "User", Name: opts.Username}}
 
-	if opts.AccountType == AccountTypeCluster {
+	if opts.ClusterWide() {
 		cr := &rbacv1.ClusterRole{
 			ObjectMeta: metav1.ObjectMeta{Name: roleName},
-			Rules: []rbacv1.PolicyRule{
-				{APIGroups: apiGroups, Resources: resources, Verbs: verbs},
-			},
+			Rules:      []rbacv1.PolicyRule{rule},
 		}
-		if _, err := cs.RbacV1().ClusterRoles().Create(ctx, cr, metav1.CreateOptions{}); err != nil {
+		if err := upsert(
+			func() error {
+				_, err := cs.RbacV1().ClusterRoles().Create(ctx, cr, metav1.CreateOptions{})
+				return err
+			},
+			func() error {
+				_, err := cs.RbacV1().ClusterRoles().Update(ctx, cr, metav1.UpdateOptions{})
+				return err
+			},
+		); err != nil {
 			return fmt.Errorf("create ClusterRole: %w", err)
 		}
+
 		crb := &rbacv1.ClusterRoleBinding{
 			ObjectMeta: metav1.ObjectMeta{Name: bindingName},
 			RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "ClusterRole", Name: roleName},
-			Subjects:   []rbacv1.Subject{{Kind: "User", Name: opts.Username}},
+			Subjects:   subjects,
 		}
-		if _, err := cs.RbacV1().ClusterRoleBindings().Create(ctx, crb, metav1.CreateOptions{}); err != nil {
+		// RoleRef is immutable, so an existing binding is replaced rather than
+		// updated in place.
+		if err := upsert(
+			func() error {
+				_, err := cs.RbacV1().ClusterRoleBindings().Create(ctx, crb, metav1.CreateOptions{})
+				return err
+			},
+			func() error {
+				if err := cs.RbacV1().ClusterRoleBindings().Delete(ctx, bindingName, metav1.DeleteOptions{}); err != nil {
+					return err
+				}
+				_, err := cs.RbacV1().ClusterRoleBindings().Create(ctx, crb, metav1.CreateOptions{})
+				return err
+			},
+		); err != nil {
 			return fmt.Errorf("create ClusterRoleBinding: %w", err)
 		}
 		return nil
@@ -360,71 +450,144 @@ func createRBAC(ctx context.Context, cs *kubernetes.Clientset, opts Options) err
 
 	role := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{Name: roleName, Namespace: opts.Namespace},
-		Rules: []rbacv1.PolicyRule{
-			{APIGroups: apiGroups, Resources: resources, Verbs: verbs},
-		},
+		Rules:      []rbacv1.PolicyRule{rule},
 	}
-	if _, err := cs.RbacV1().Roles(opts.Namespace).Create(ctx, role, metav1.CreateOptions{}); err != nil {
+	if err := upsert(
+		func() error {
+			_, err := cs.RbacV1().Roles(opts.Namespace).Create(ctx, role, metav1.CreateOptions{})
+			return err
+		},
+		func() error {
+			_, err := cs.RbacV1().Roles(opts.Namespace).Update(ctx, role, metav1.UpdateOptions{})
+			return err
+		},
+	); err != nil {
 		return fmt.Errorf("create Role: %w", err)
 	}
+
 	rb := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{Name: bindingName, Namespace: opts.Namespace},
 		RoleRef:    rbacv1.RoleRef{APIGroup: "rbac.authorization.k8s.io", Kind: "Role", Name: roleName},
-		Subjects:   []rbacv1.Subject{{Kind: "User", Name: opts.Username}},
+		Subjects:   subjects,
 	}
-	if _, err := cs.RbacV1().RoleBindings(opts.Namespace).Create(ctx, rb, metav1.CreateOptions{}); err != nil {
+	if err := upsert(
+		func() error {
+			_, err := cs.RbacV1().RoleBindings(opts.Namespace).Create(ctx, rb, metav1.CreateOptions{})
+			return err
+		},
+		func() error {
+			if err := cs.RbacV1().RoleBindings(opts.Namespace).Delete(ctx, bindingName, metav1.DeleteOptions{}); err != nil {
+				return err
+			}
+			_, err := cs.RbacV1().RoleBindings(opts.Namespace).Create(ctx, rb, metav1.CreateOptions{})
+			return err
+		},
+	); err != nil {
 		return fmt.Errorf("create RoleBinding: %w", err)
 	}
 	return nil
 }
 
-func buildKubeconfig(username string, certPEM, keyPEM []byte) ([]byte, error) {
-	rawConfig, err := clientcmd.NewDefaultClientConfigLoadingRules().Load()
+// upsert runs create, falling back to replace when the object already exists.
+func upsert(create, replace func() error) error {
+	err := create()
+	if apierrors.IsAlreadyExists(err) {
+		return replace()
+	}
+	return err
+}
+
+// buildKubeconfig renders a kubeconfig for the new user, reusing the server
+// and CA of the cluster referenced by the current context.
+func buildKubeconfig(opts Options, certPEM, keyPEM []byte) ([]byte, error) {
+	rules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if opts.KubeconfigPath != "" {
+		rules.ExplicitPath = opts.KubeconfigPath
+	}
+	rawConfig, err := rules.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load kubeconfig: %w", err)
 	}
 
-	var server string
-	var caData []byte
-	for _, cluster := range rawConfig.Clusters {
-		server = cluster.Server
-		caData = cluster.CertificateAuthorityData
-		break
+	clusterName, cluster, err := currentCluster(rawConfig)
+	if err != nil {
+		return nil, err
 	}
 
-	cfg := &clientcmdapi.Config{
+	caData := cluster.CertificateAuthorityData
+	if len(caData) == 0 && cluster.CertificateAuthority != "" {
+		// The source kubeconfig references the CA by path; inline it so the
+		// generated file stands alone.
+		caData, err = os.ReadFile(cluster.CertificateAuthority)
+		if err != nil {
+			return nil, fmt.Errorf("read certificate authority %s: %w", cluster.CertificateAuthority, err)
+		}
+	}
+
+	contextName := opts.Username + "@" + clusterName
+	kubeContext := &clientcmdapi.Context{
+		Cluster:  clusterName,
+		AuthInfo: opts.Username,
+	}
+	// A namespace-scoped account can only read its own namespace, so make that
+	// the context default instead of "default".
+	if !opts.ClusterWide() {
+		kubeContext.Namespace = opts.Namespace
+	}
+
+	cfg := clientcmdapi.Config{
 		APIVersion: "v1",
 		Kind:       "Config",
 		Clusters: map[string]*clientcmdapi.Cluster{
-			"kelper-cluster": {
-				Server:                   server,
+			clusterName: {
+				Server:                   cluster.Server,
 				CertificateAuthorityData: caData,
+				InsecureSkipTLSVerify:    cluster.InsecureSkipTLSVerify,
 			},
 		},
 		AuthInfos: map[string]*clientcmdapi.AuthInfo{
-			username: {
+			opts.Username: {
 				ClientCertificateData: certPEM,
 				ClientKeyData:         keyPEM,
 			},
 		},
-		Contexts: map[string]*clientcmdapi.Context{
-			username + "@kelper-cluster": {
-				Cluster:  "kelper-cluster",
-				AuthInfo: username,
-			},
-		},
-		CurrentContext: username + "@kelper-cluster",
+		Contexts:       map[string]*clientcmdapi.Context{contextName: kubeContext},
+		CurrentContext: contextName,
 	}
 
-	out, err := yaml.Marshal(cfg)
+	// clientcmd.Write converts the in-memory (map-keyed) config to the v1
+	// on-disk schema, whose clusters/contexts/users are lists. Marshalling the
+	// api.Config directly emits maps that kubectl cannot load.
+	out, err := clientcmd.Write(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("marshal kubeconfig: %w", err)
 	}
 	return out, nil
 }
 
-func buildClientset() (*kubernetes.Clientset, error) {
+// currentCluster returns the cluster referenced by the config's current
+// context. Iterating the Clusters map directly is non-deterministic when more
+// than one cluster is defined.
+func currentCluster(cfg *clientcmdapi.Config) (string, *clientcmdapi.Cluster, error) {
+	if cfg.CurrentContext == "" {
+		return "", nil, fmt.Errorf("kubeconfig has no current context")
+	}
+	kubeContext, ok := cfg.Contexts[cfg.CurrentContext]
+	if !ok {
+		return "", nil, fmt.Errorf("current context %q not found in kubeconfig", cfg.CurrentContext)
+	}
+	cluster, ok := cfg.Clusters[kubeContext.Cluster]
+	if !ok {
+		return "", nil, fmt.Errorf("cluster %q referenced by context %q not found in kubeconfig", kubeContext.Cluster, cfg.CurrentContext)
+	}
+	return kubeContext.Cluster, cluster, nil
+}
+
+func buildClientset(kubeconfigPath string) (*kubernetes.Clientset, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if kubeconfigPath != "" {
+		rules.ExplicitPath = kubeconfigPath
+	}
 	config, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		rules, &clientcmd.ConfigOverrides{},
 	).ClientConfig()
@@ -432,6 +595,19 @@ func buildClientset() (*kubernetes.Clientset, error) {
 		return nil, err
 	}
 	return kubernetes.NewForConfig(config)
+}
+
+// displayAPIGroups renders the core group as its "core" alias so summaries do
+// not show a blank entry.
+func displayAPIGroups(groups []string) []string {
+	out := make([]string, len(groups))
+	for i, g := range groups {
+		if g == "" {
+			g = coreAPIGroupAlias
+		}
+		out[i] = g
+	}
+	return out
 }
 
 func splitCSV(s string) []string {
@@ -447,5 +623,3 @@ func splitCSV(s string) []string {
 	}
 	return out
 }
-
-
