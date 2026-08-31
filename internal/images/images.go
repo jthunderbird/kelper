@@ -14,7 +14,7 @@ import (
 )
 
 // Command returns the cobra command for images / image / imgs / img.
-func Command(cs **kubernetes.Clientset) *cobra.Command {
+func Command(cs *kubernetes.Interface) *cobra.Command {
 	var namespace string
 	var allNamespaces bool
 
@@ -39,7 +39,7 @@ func Command(cs **kubernetes.Clientset) *cobra.Command {
 	return cmd
 }
 
-func run(cs *kubernetes.Clientset, namespace, podName string) error {
+func run(cs kubernetes.Interface, namespace, podName string) error {
 	ctx := context.Background()
 	if podName != "" {
 		pod, err := cs.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})

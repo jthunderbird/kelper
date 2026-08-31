@@ -22,7 +22,7 @@ var (
 
 // TUIModel is the bubbletea model for the healthcheck TUI.
 type TUIModel struct {
-	cs         *kubernetes.Clientset
+	cs         kubernetes.Interface
 	namespaces []string
 	cursor     int
 	selected   string
@@ -48,7 +48,7 @@ func (m TUIModel) Namespaces() []string {
 	return m.namespaces
 }
 
-func newTUIModelWithClient(cs *kubernetes.Clientset, namespaces []string) TUIModel {
+func newTUIModelWithClient(cs kubernetes.Interface, namespaces []string) TUIModel {
 	return TUIModel{cs: cs, namespaces: namespaces}
 }
 
@@ -161,7 +161,7 @@ func tick() tea.Cmd {
 }
 
 // runTUI fetches namespaces from the cluster and launches the bubbletea TUI.
-func runTUI(cs *kubernetes.Clientset) error {
+func runTUI(cs kubernetes.Interface) error {
 	nsList, err := cs.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("list namespaces: %w", err)

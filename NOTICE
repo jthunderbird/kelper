@@ -1,0 +1,19 @@
+kelper
+Copyright (c) JT
+
+This product includes software developed by third parties.
+
+--------------------------------------------------------------------------------
+k9s
+https://github.com/derailed/k9s
+Copyright Authors of K9s
+Licensed under the Apache License, Version 2.0
+
+kelper embeds k9s and exposes it via the `kelper k9s` subcommand. Portions of
+k9s source (terminal chart widgets under internal/tchart and health evaluation
+helpers) have been adapted into kelper's health dashboard; adapted files retain
+their original Apache-2.0 license headers.
+
+A copy of the Apache License, Version 2.0 is available at:
+http://www.apache.org/licenses/LICENSE-2.0
+--------------------------------------------------------------------------------

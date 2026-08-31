@@ -50,7 +50,7 @@ var kelperSubcommands = map[string]bool{
 
 func main() {
 	var kubeconfigPath string
-	var cs *kubernetes.Clientset
+	var cs kubernetes.Interface
 
 	// Fast-path: if the first non-flag argument is not a kelper-native
 	// subcommand (and not a help/version flag), forward everything directly to

@@ -15,7 +15,7 @@ import (
 
 // Run intercepts `get -o yaml` and routes to decode (Secrets) or neat (everything else).
 // args is the os.Args slice starting from "get".
-func Run(cs *kubernetes.Clientset, args []string) error {
+func Run(cs kubernetes.Interface, args []string) error {
 	cmd := exec.Command("kubectl", args...)
 	cmd.Stderr = os.Stderr
 	raw, err := cmd.Output()

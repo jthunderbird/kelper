@@ -319,7 +319,7 @@ func Create(opts Options) error {
 	return nil
 }
 
-func submitAndApproveCSR(ctx context.Context, cs *kubernetes.Clientset, username string, keyPEM []byte) ([]byte, error) {
+func submitAndApproveCSR(ctx context.Context, cs kubernetes.Interface, username string, keyPEM []byte) ([]byte, error) {
 	block, _ := pem.Decode(keyPEM)
 	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
@@ -399,7 +399,7 @@ func policyRule(opts Options) rbacv1.PolicyRule {
 // createRBAC creates or updates the Role/ClusterRole and matching binding for
 // the account. Re-running for an existing username refreshes its permissions
 // in place, mirroring how the CSR is recreated on every run.
-func createRBAC(ctx context.Context, cs *kubernetes.Clientset, opts Options) error {
+func createRBAC(ctx context.Context, cs kubernetes.Interface, opts Options) error {
 	rule := policyRule(opts)
 	roleName := opts.Username + "-kelper-role"
 	bindingName := opts.Username + "-kelper-binding"
@@ -583,7 +583,7 @@ func currentCluster(cfg *clientcmdapi.Config) (string, *clientcmdapi.Cluster, er
 	return kubeContext.Cluster, cluster, nil
 }
 
-func buildClientset(kubeconfigPath string) (*kubernetes.Clientset, error) {
+func buildClientset(kubeconfigPath string) (kubernetes.Interface, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if kubeconfigPath != "" {
 		rules.ExplicitPath = kubeconfigPath

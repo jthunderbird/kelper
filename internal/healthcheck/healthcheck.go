@@ -19,7 +19,7 @@ import (
 var sectionStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("9"))
 
 // Command returns the cobra command for healthcheck / health.
-func Command(cs **kubernetes.Clientset) *cobra.Command {
+func Command(cs *kubernetes.Interface) *cobra.Command {
 	var namespace string
 	var allNamespaces bool
 
@@ -46,7 +46,7 @@ func Command(cs **kubernetes.Clientset) *cobra.Command {
 
 // RunTable runs a non-interactive healthcheck and prints tables to stdout.
 // Returns a non-nil error if any unhealthy resources are found (triggers exit code 1).
-func RunTable(cs *kubernetes.Clientset, namespace string) error {
+func RunTable(cs kubernetes.Interface, namespace string) error {
 	ctx := context.Background()
 
 	pods, err := cs.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
@@ -134,7 +134,7 @@ type workloadStatus struct {
 	desired   int32
 }
 
-func listUnhealthyWorkloads(ctx context.Context, cs *kubernetes.Clientset, namespace string) ([]workloadStatus, error) {
+func listUnhealthyWorkloads(ctx context.Context, cs kubernetes.Interface, namespace string) ([]workloadStatus, error) {
 	var results []workloadStatus
 
 	// Deployments.
