@@ -32,6 +32,14 @@ func RestConfig(kubeconfigPath string) (*rest.Config, error) {
 	).ClientConfig()
 }
 
+// Health checks fan out across many resource types at once, and client-go's
+// default 5 QPS makes that crawl. These limits keep a full scan responsive
+// while staying well inside the API server's own priority-and-fairness budget.
+const (
+	healthQPS   = 50
+	healthBurst = 100
+)
+
 // Bundle holds every client the health engine needs. Metrics is nil when the
 // metrics API cannot be reached; callers must treat it as optional.
 type Bundle struct {
@@ -49,6 +57,8 @@ func NewBundle(kubeconfigPath string) (*Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
+	config.QPS, config.Burst = healthQPS, healthBurst
+
 	kube, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err

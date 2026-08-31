@@ -10,9 +10,12 @@ A Go binary that wraps `kubectl` with enhanced output formatting and cluster too
 - **Cleans up YAML** by stripping the noise Kubernetes injects (`uid`,
   `creationTimestamp`, `resourceVersion`, `status`, and per-kind defaults), so
   output is paste-ready for a manifest.
-- **Healthcheck** — surface unhealthy pods and workloads (Deployments,
-  StatefulSets, DaemonSets, Jobs, CronJobs) as tables with an exit code, or an
-  interactive TUI when run bare.
+- **Healthcheck** — a diagnosis engine covering pods, workloads, ReplicaSets,
+  nodes, resource limits, volumes, certificates, Services and custom resources.
+  Prints severity-ranked tables with an exit code, streams changes with
+  `--watch`, or opens a live dashboard when run bare.
+- **Embedded k9s** — `kelper k9s` launches the full k9s terminal UI, bundled in
+  the binary.
 - **Pod inspectors** — `images`, `resources`, and `volumes` render per-container
   detail with copy-paste-friendly indented YAML blocks.
 - **Kubeconfig generation** — create readonly, admin, cluster-wide, or
@@ -123,7 +126,8 @@ kelper --kubeconfig <path> <args>  # use a specific kubeconfig
 
 | Command       | Description                                                              |
 | ------------- | ------------------------------------------------------------------------ |
-| `healthcheck` | Report unhealthy pods and workloads (TUI when run with no target).       |
+| `healthcheck` | Diagnose cluster health (live dashboard when run with no target).        |
+| `k9s`         | Launch the embedded k9s terminal UI.                                     |
 | `images`      | Show container images per pod.                                           |
 | `resources`   | Show resource limits and requests per pod.                               |
 | `volumes`     | Show volume mounts and pod volumes per pod.                              |
@@ -186,17 +190,95 @@ pod: kyverno-admission-controller-5d8986c8b6-2g7gr (-n kyverno)
 
 ### `healthcheck`
 
-```bash
-$ kelper healthcheck -n istio-operator
-Unhealthy Workloads
-NAMESPACE       KIND        NAME             AVAILABLE   DESIRED
-istio-operator  Job         istiod-hook      0           1
+Runs a set of independent checks against the cluster and reports severity-ranked
+findings, each with the evidence behind it and a suggested fix.
 
-Summary: 0 unhealthy pod(s), 1 unhealthy workload(s)
+```bash
+$ kelper healthcheck -n kelper-health-test
+ERROR (8)
+ NAMESPACE           KIND                   NAME                       REASON               MESSAGE
+ kelper-health-test  Deployment             bad-image                  ReplicasUnavailable  0/1 replicas available
+ kelper-health-test  PersistentVolumeClaim  unbound                    PVCPending           claim is unbound; pods using it cannot start
+ kelper-health-test  Pod                    bad-image-fbf75bccf-6gxn6  ImagePullBackOff     container "app" is ImagePullBackOff
+ kelper-health-test  Pod                    unschedulable              Unschedulable        cannot be scheduled: 0/3 nodes are available...
+ kelper-health-test  Service                no-endpoints               NoReadyEndpoints     service has no ready endpoints; traffic to it will fail
+
+WARN (1)
+ NAMESPACE           KIND  NAME                      REASON        MESSAGE
+ kelper-health-test  Pod   crasher-6db794d66d-hv7n7  RestartChurn  container "app" restarted 2 time(s), last 14s ago — still inside the 10m0s backoff window
+
+Summary: 8 ERROR, 1 WARN
 ```
 
-Run `kelper healthcheck` with no target to open the interactive TUI with a
-namespace selector and live refresh.
+The exit code is non-zero when anything at warning level or above is found, so
+it works as a CI gate.
+
+#### Checks
+
+Run `kelper healthcheck --list-checks` for the current list.
+
+| Check | What it catches |
+|---|---|
+| `pods` | Pending and unschedulable pods, init-container failures, OOMKills, evicted and stuck-terminating pods |
+| `restarts` | Pods that restarted inside the kubelet backoff window — Running and Ready right now, but about to crash again |
+| `workloads` | Deployments, StatefulSets, DaemonSets, Jobs and CronJobs, by status conditions and rollout progress as well as replica counts |
+| `replicasets` | Stale ReplicaSets still running pods after an incomplete rollout, and orphaned ones |
+| `nodes` | Readiness, memory/disk/PID pressure, cordoned nodes, overcommit and utilization |
+| `limits` | Containers near or over their CPU/memory limits (requires metrics-server) |
+| `volumes` | PVCs near capacity or out of inodes (requires `nodes/proxy`), and unbound claims |
+| `certs` | API server, kubelet and kubeconfig client certificate expiry, plus pending CSRs |
+| `services` | Services whose selector matches no ready pods |
+| `custom` | Custom resources reporting a failing `Ready`/`Available`/`Healthy` condition |
+
+Checks whose data source is unavailable are skipped rather than failed, and the
+gap is reported in a single `Degraded:` line — so kelper stays useful against
+clusters without metrics-server or without node proxy permission.
+
+```bash
+kelper healthcheck -A                      # every namespace
+kelper healthcheck -n prod --detail        # expand evidence and remediation
+kelper healthcheck --checks pods,restarts  # run only these checks
+kelper healthcheck --skip custom           # skip the custom resource scan
+kelper healthcheck --severity error        # report errors and above only
+kelper healthcheck --watch --interval 15s  # stream only what changed
+```
+
+#### Live dashboard
+
+Run `kelper healthcheck` with no target to open the dashboard. It is driven by
+cluster watch events rather than polling, so findings update as the cluster
+changes; metrics, volume stats and certificates refresh on their own timers.
+
+```
+┌──────────── kelper health ─────────────┐┌───────────────────── nodes ──────────────────────┐
+│ 21:37:17                               ││ node-1  cpu ░░░░░░░░░░   7%  mem █████░░░░░  59% │
+│ critical 0  error 10  warn 0  info 0   ││ node-2  cpu ░░░░░░░░░░   5%  mem ██████░░░░  64% │
+│ 112 pods  3 nodes                      ││ node-3  cpu ░░░░░░░░░░   7%  mem ██████░░░░  64% │
+└────────────────────────────────────────┘└──────────────────────────────────────────────────┘
+┌──────────────── findings ──────────────────┐┌──────────────── detail ─────────────────┐
+│ SEV   NAMESPACE  KIND  NAME       REASON   ││ ERROR  Unschedulable                    │
+│ ERROR default    Pod   web-x9f2j  Unsched..││ pod/web-x9f2j -n default                │
+└────────────────────────────────────────────┘└─────────────────────────────────────────┘
+```
+
+| Key | Action |
+|---|---|
+| `/` | filter findings by text |
+| `s` | cycle minimum severity |
+| `p` | pause or resume live updates |
+| `esc` | clear filters |
+| `?` | help |
+| `q` / `ctrl-c` | quit |
+
+### `k9s`
+
+kelper embeds [k9s](https://github.com/derailed/k9s), so the full terminal UI is
+available without installing it separately. Arguments pass straight through.
+
+```bash
+kelper k9s                 # launch k9s
+kelper k9s -n kube-system  # any k9s flag works
+```
 
 ### `kubeconfig`
 
@@ -301,3 +383,6 @@ workflow, which:
 ## License
 
 See [LICENSE](LICENSE).
+
+kelper embeds [k9s](https://github.com/derailed/k9s), which is licensed under
+the Apache License 2.0. See [NOTICE](NOTICE) for attribution.

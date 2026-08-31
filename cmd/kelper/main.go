@@ -1,15 +1,18 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/jthunderbird/kelper/internal/client"
 	"github.com/jthunderbird/kelper/internal/completion"
 	"github.com/jthunderbird/kelper/internal/get"
-	"github.com/jthunderbird/kelper/internal/healthcheck"
+	healthcmd "github.com/jthunderbird/kelper/internal/health/cmd"
 	"github.com/jthunderbird/kelper/internal/images"
+	"github.com/jthunderbird/kelper/internal/k9s"
 	"github.com/jthunderbird/kelper/internal/kubeconfig"
 	"github.com/jthunderbird/kelper/internal/output"
 	"github.com/jthunderbird/kelper/internal/passthrough"
@@ -17,6 +20,7 @@ import (
 	"github.com/jthunderbird/kelper/internal/volumes"
 	"github.com/spf13/cobra"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
 )
 
 // appVersion is overridden at build time via -ldflags "-X main.appVersion=...".
@@ -27,6 +31,7 @@ var appVersion = "dev"
 var kelperSubcommands = map[string]bool{
 	"healthcheck": true,
 	"health":      true,
+	"k9s":         true,
 	"images":      true,
 	"image":       true,
 	"imgs":        true,
@@ -49,6 +54,8 @@ var kelperSubcommands = map[string]bool{
 }
 
 func main() {
+	silenceKlog()
+
 	var kubeconfigPath string
 	var cs kubernetes.Interface
 
@@ -113,6 +120,10 @@ func main() {
 			switch cmd.Name() {
 			case "completion", "help", cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
 				return nil
+			// healthcheck and k9s build their own clients, so the shared
+			// clientset is not needed and its failure should not block them.
+			case "healthcheck", "health", "k9s":
+				return nil
 			}
 			// Skip if any ancestor is completion (e.g. `kelper completion bash`).
 			for c := cmd.Parent(); c != nil; c = c.Parent() {
@@ -140,7 +151,8 @@ func main() {
 	root.PersistentFlags().StringVar(&kubeconfigPath, "kubeconfig", "", "path to kubeconfig file (default: $KUBECONFIG or ~/.kube/config)")
 
 	// Register feature subcommands.
-	root.AddCommand(healthcheck.Command(&cs))
+	root.AddCommand(healthcmd.Command(&kubeconfigPath))
+	root.AddCommand(k9sCommand())
 	root.AddCommand(images.Command(&cs))
 	root.AddCommand(resources.Command(&cs))
 	root.AddCommand(volumes.Command(&cs))
@@ -199,4 +211,28 @@ func hasFlag(args []string, flag string) bool {
 		}
 	}
 	return false
+}
+
+// k9sCommand launches the embedded k9s. Flag parsing is disabled so that every
+// argument reaches k9s rather than being interpreted by kelper's cobra root.
+func k9sCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:                "k9s [flags]",
+		Short:              "Launch k9s, the Kubernetes terminal UI",
+		DisableFlagParsing: true,
+		Run: func(_ *cobra.Command, args []string) {
+			k9s.Run(args)
+		},
+	}
+}
+
+// silenceKlog stops client-go's logger from writing operational notices, such
+// as client-side throttling delays, into kelper's output. Real errors are
+// surfaced through returned errors instead.
+func silenceKlog() {
+	fs := flag.NewFlagSet("klog", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	klog.InitFlags(fs)
+	_ = fs.Parse([]string{"-logtostderr=false", "-alsologtostderr=false", "-stderrthreshold=FATAL", "-v=0"})
+	klog.SetOutput(io.Discard)
 }

@@ -48,6 +48,9 @@ type Snapshot struct {
 	// VolumeStats maps "namespace/pvc-name" to kubelet-reported usage. Only
 	// populated when CapNodeProxy is present.
 	VolumeStats map[string]VolumeStat
+	// NodeFilesystems maps a node name to its kubelet-reported disk usage. Only
+	// populated when CapNodeProxy is present.
+	NodeFilesystems map[string]NodeFsStat
 	// CertExpiry maps an endpoint description to its certificate expiry.
 	CertExpiry map[string]time.Time
 
@@ -78,6 +81,15 @@ func (v VolumeStat) UsedPercent() float64 {
 		return 0
 	}
 	return float64(v.UsedBytes) / float64(v.CapacityBytes) * 100
+}
+
+// NodeFsStat is a node's own filesystem usage as reported by its kubelet.
+type NodeFsStat struct {
+	Node          string
+	UsedBytes     uint64
+	CapacityBytes uint64
+	InodesUsed    uint64
+	InodesFree    uint64
 }
 
 // CustomResource is one custom-resource instance reduced to its health signal.
@@ -188,11 +200,12 @@ type ListProvider struct {
 // Snapshot fetches all core cluster state concurrently.
 func (p *ListProvider) Snapshot(ctx context.Context) (*Snapshot, error) {
 	s := &Snapshot{
-		Namespace:   p.Namespace,
-		Taken:       time.Now(),
-		VolumeStats: map[string]VolumeStat{},
-		CertExpiry:  map[string]time.Time{},
-		caps:        map[Capability]bool{},
+		Namespace:       p.Namespace,
+		Taken:           time.Now(),
+		VolumeStats:     map[string]VolumeStat{},
+		NodeFilesystems: map[string]NodeFsStat{},
+		CertExpiry:      map[string]time.Time{},
+		caps:            map[Capability]bool{},
 	}
 	if p.Caps != nil {
 		s.caps = p.Caps.Map()
@@ -342,9 +355,10 @@ func (p *ListProvider) Snapshot(ctx context.Context) (*Snapshot, error) {
 // enabled so capability gating does not interfere with check unit tests.
 func NewSnapshotForTest(mutators ...func(*Snapshot)) *Snapshot {
 	s := &Snapshot{
-		Taken:       time.Now(),
-		VolumeStats: map[string]VolumeStat{},
-		CertExpiry:  map[string]time.Time{},
+		Taken:           time.Now(),
+		VolumeStats:     map[string]VolumeStat{},
+		NodeFilesystems: map[string]NodeFsStat{},
+		CertExpiry:      map[string]time.Time{},
 		caps: map[Capability]bool{
 			CapMetrics: true, CapNodeProxy: true, CapDynamic: true,
 		},
