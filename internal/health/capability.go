@@ -44,14 +44,26 @@ func DetectCapabilities(ctx context.Context, kube kubernetes.Interface, disco di
 			c.Degraded = append(c.Degraded, fmt.Sprintf("discovery unavailable (%s): custom resource checks skipped", short(err)))
 		default:
 			c.Dynamic = true
+			var served bool
 			for _, g := range groups.Groups {
 				if g.Name == "metrics.k8s.io" {
-					c.Metrics = true
+					served = true
 					break
 				}
 			}
-			if !c.Metrics {
-				c.Degraded = append(c.Degraded, "metrics-server unavailable: CPU/memory limit checks skipped")
+			switch {
+			case !served:
+				c.Degraded = append(c.Degraded,
+					"metrics-server unavailable: CPU/memory limit checks skipped")
+			// Discovery is readable by any authenticated user, so the API being
+			// served says nothing about whether this credential may read it.
+			// Without a permission check the limit checks would run against an
+			// empty result set and silently report nothing.
+			case !canAccess(ctx, kube, "list", "metrics.k8s.io", "pods", ""):
+				c.Degraded = append(c.Degraded,
+					"metrics.k8s.io denied: CPU/memory limit checks skipped")
+			default:
+				c.Metrics = true
 			}
 		}
 	} else {

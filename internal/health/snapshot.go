@@ -369,3 +369,11 @@ func NewSnapshotForTest(mutators ...func(*Snapshot)) *Snapshot {
 	s.index()
 	return s
 }
+
+// NewSnapshotForTestWithCaps builds a snapshot with an explicit capability set,
+// for exercising the degraded paths that a fully privileged cluster cannot.
+func NewSnapshotForTestWithCaps(caps map[Capability]bool) *Snapshot {
+	s := NewSnapshotForTest()
+	s.caps = caps
+	return s
+}

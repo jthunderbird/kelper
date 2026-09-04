@@ -16,6 +16,11 @@ import (
 // before it is reported as stuck.
 const stuckTerminatingGrace = 5 * time.Minute
 
+// notReadyGrace is how long a running container may stay unready before it is
+// reported. Containers are legitimately unready while starting up and during
+// readiness probe warm-up, so a short window avoids flagging normal rollouts.
+const notReadyGrace = 5 * time.Minute
+
 // Pods reports pods that are not healthy. It covers several states the previous
 // implementation missed entirely, most importantly pods with no container
 // statuses at all (Pending/unschedulable), which a ready-container scan reports
@@ -169,6 +174,28 @@ func (c Pods) containerFindings(s *health.Snapshot, p *corev1.Pod, ref health.Re
 					Evidence: append(
 						[]health.Evidence{{Label: "container", Value: cs.Name}},
 						evidenceFromEvents(s, p.UID, 2)...),
+				})
+			}
+		}
+
+		// A container that is running but never becomes ready is failing its
+		// readiness probe. Nothing above catches this: there is no waiting
+		// reason and the pod phase is Running, yet it serves no traffic.
+		if r := cs.State.Running; r != nil && !cs.Ready && !init {
+			if since := time.Since(r.StartedAt.Time); since > notReadyGrace {
+				out = append(out, health.Finding{
+					Severity: health.SeverityError,
+					Ref:      ref,
+					Reason:   "NotReady",
+					Message: fmt.Sprintf("container %q has been running but not ready for %s",
+						cs.Name, roundDur(since)),
+					Detail: "The container is up but failing its readiness probe, so it is " +
+						"removed from Service endpoints and serves no traffic.",
+					Remediation: "Check the readiness probe configuration and the container's logs",
+					Evidence: append(
+						[]health.Evidence{{Label: "container", Value: cs.Name}},
+						evidenceFromEvents(s, p.UID, 2)...),
+					Since: r.StartedAt.Time,
 				})
 			}
 		}

@@ -167,3 +167,46 @@ func TestStuckTerminatingPodIsReported(t *testing.T) {
 		t.Fatal("expected StuckTerminating finding")
 	}
 }
+
+// A container that is running but never becomes ready is failing its readiness
+// probe: it has no waiting reason and the pod phase is Running, so nothing else
+// in this check would catch it, yet it serves no traffic.
+func TestRunningButNotReadyIsReported(t *testing.T) {
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "unready", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:  "app",
+				Ready: false,
+				State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{
+					StartedAt: metav1.NewTime(time.Now().Add(-2 * time.Hour)),
+				}},
+			}},
+		},
+	}
+	if !hasReason(runPods(t, pod), "NotReady") {
+		t.Fatal("expected a NotReady finding for a long-running unready container")
+	}
+}
+
+// Containers are unready while starting; a freshly started one must not be
+// flagged or every rollout would produce noise.
+func TestRecentlyStartedUnreadyContainerIsQuiet(t *testing.T) {
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "starting", Namespace: "default"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:  "app",
+				Ready: false,
+				State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{
+					StartedAt: metav1.NewTime(time.Now().Add(-10 * time.Second)),
+				}},
+			}},
+		},
+	}
+	if fs := runPods(t, pod); len(fs) != 0 {
+		t.Fatalf("expected no findings for a starting container, got %+v", fs)
+	}
+}
