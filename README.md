@@ -18,6 +18,9 @@ A Go binary that wraps `kubectl` with enhanced output formatting and cluster too
   the binary.
 - **Pod inspectors** — `images`, `resources`, and `volumes` render per-container
   detail with copy-paste-friendly indented YAML blocks.
+- **Image pull through the cluster** — `pull` saves the image a pod is running
+  to a local `docker load`-able or OCI archive, even when the registry is only
+  reachable from inside the cluster.
 - **Kubeconfig generation** — create readonly, admin, cluster-wide, or
   resource-scoped users via CSR + RBAC, either with flags or an interactive
   wizard.
@@ -132,6 +135,7 @@ kelper --kubeconfig <path> <args>  # use a specific kubeconfig
 | `resources`   | Show resource limits and requests per pod.                               |
 | `volumes`     | Show volume mounts and pod volumes per pod.                              |
 | `kubeconfig`  | Generate kubeconfig files for cluster users (wizard when run bare).      |
+| `pull`        | Save the image a pod is running to a local archive.                      |
 | `completion`  | Generate shell completion scripts (bash/zsh/fish/powershell).           |
 
 Aliases: `health`; `image`/`imgs`/`img`; `resource`/`res`; `volume`/`vols`/`vol`.
@@ -279,6 +283,62 @@ available without installing it separately. Arguments pass straight through.
 kelper k9s                 # launch k9s
 kelper k9s -n kube-system  # any k9s flag works
 ```
+
+### `pull`
+
+Saves the image a pod's container is running to a local archive, using only
+Kubernetes API access — useful when the image lives in a registry the cluster
+can reach but your workstation cannot.
+
+```bash
+$ kelper pull keycloak-869969bcc7-sk7bf -n keycloak
+kelper pull will change pod keycloak/keycloak-869969bcc7-sk7bf:
+  - add ephemeral container "kelper-pull-092829" running quay.io/keycloak/keycloak:26.0 to pull the image from inside the pod
+  - the container stops when the pull ends, or after 10m0s at the latest
+  - Kubernetes cannot remove ephemeral containers: it stays in the pod spec,
+    stopped, until the pod is recreated
+Continue? [y/N]: y
+Waiting for helper container kelper-pull-092829...
+Saved keycloak_09a381c715ab.tar (quay.io/keycloak/keycloak:26.0, 226.8 MiB) in 4.4s
+
+$ docker load -i keycloak_09a381c715ab.tar
+```
+
+kelper adds an ephemeral container to the pod, injects a small static fetcher
+into it, and pulls the image by its **running digest** through the pod's own
+network path, streaming the archive back over `exec`. Pull secrets from the pod
+and its service account are used for registry authentication; they are passed
+to the fetcher over stdin and never written to disk.
+
+```bash
+kelper pull web-0 -c app -o web.tar             # pick a container and output path
+kelper pull web-0 --format oci                  # OCI image layout instead of docker
+kelper pull web-0 --helper-image busybox:1.37   # target image has no shell
+kelper pull web-0 --ca registry-ca.pem          # private registry CA
+kelper pull web-0 -y                            # skip the confirmation prompt
+```
+
+**The pod is changed.** Kubernetes cannot remove ephemeral containers, so each
+pull leaves a stopped helper container in the pod spec until the pod is
+recreated. kelper asks before making the change. The helper always stops on
+its own by `--timeout`, even if kelper is interrupted.
+
+**Helper image.** The helper runs the target's own image (already on the node,
+so nothing is pulled), which must provide `sh`, `cat`, `chmod`, `sleep` and
+`rm`. kelper checks this before changing the pod. For distroless or scratch
+images, pass `--helper-image` with any image that has them and is available to
+the node.
+
+**Limitations.**
+
+- Images side-loaded onto nodes (`ctr import`, air-gap tarballs) or referenced
+  by image ID cannot be pulled: no registry serves them.
+- Registry mirrors and credentials configured on the node (containerd mirror
+  config, kubelet credential providers) are not visible from inside the pod; the
+  pull goes to the registry in the image reference using the pod's pull secrets.
+
+**RBAC.** `get` on pods, nodes, serviceaccounts and secrets; `patch` on
+`pods/ephemeralcontainers`; `create` on `pods/exec`.
 
 ### `kubeconfig`
 

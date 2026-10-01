@@ -16,6 +16,7 @@ import (
 	"github.com/jthunderbird/kelper/internal/kubeconfig"
 	"github.com/jthunderbird/kelper/internal/output"
 	"github.com/jthunderbird/kelper/internal/passthrough"
+	"github.com/jthunderbird/kelper/internal/pull"
 	"github.com/jthunderbird/kelper/internal/resources"
 	"github.com/jthunderbird/kelper/internal/volumes"
 	"github.com/spf13/cobra"
@@ -44,6 +45,7 @@ var kelperSubcommands = map[string]bool{
 	"vols":        true,
 	"vol":         true,
 	"kubeconfig":  true,
+	"pull":        true,
 	"completion":  true,
 	"help":        true,
 	// Cobra's hidden completion callbacks. The generated shell scripts invoke
@@ -121,9 +123,10 @@ func main() {
 			switch cmd.Name() {
 			case "completion", "help", cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd:
 				return nil
-			// healthcheck and k9s build their own clients, so the shared
-			// clientset is not needed and its failure should not block them.
-			case "healthcheck", "health", "k9s":
+			// healthcheck, k9s and pull build their own clients, so the
+			// shared clientset is not needed and its failure should not
+			// block them.
+			case "healthcheck", "health", "k9s", "pull":
 				return nil
 			}
 			// Skip if any ancestor is completion (e.g. `kelper completion bash`).
@@ -158,6 +161,7 @@ func main() {
 	root.AddCommand(resources.Command(&cs))
 	root.AddCommand(volumes.Command(&cs))
 	root.AddCommand(kubeconfig.Command(&kubeconfigPath))
+	root.AddCommand(pull.Command(&kubeconfigPath))
 	root.AddCommand(completion.Command())
 
 	if err := root.Execute(); err != nil {

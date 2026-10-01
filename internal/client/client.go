@@ -22,6 +22,17 @@ func New(kubeconfigPath string) (kubernetes.Interface, error) {
 
 // RestConfig resolves a *rest.Config using the same discovery order as New.
 func RestConfig(kubeconfigPath string) (*rest.Config, error) {
+	return clientConfig(kubeconfigPath).ClientConfig()
+}
+
+// Namespace returns the current context's namespace, or "default" when the
+// context sets none, matching kubectl's behavior when -n is omitted.
+func Namespace(kubeconfigPath string) (string, error) {
+	ns, _, err := clientConfig(kubeconfigPath).Namespace()
+	return ns, err
+}
+
+func clientConfig(kubeconfigPath string) clientcmd.ClientConfig {
 	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if kubeconfigPath != "" {
 		loadingRules.ExplicitPath = kubeconfigPath
@@ -29,7 +40,7 @@ func RestConfig(kubeconfigPath string) (*rest.Config, error) {
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		loadingRules,
 		&clientcmd.ConfigOverrides{},
-	).ClientConfig()
+	)
 }
 
 // Health checks fan out across many resource types at once, and client-go's
