@@ -1,13 +1,16 @@
 # ---- build stage ----
-FROM golang:1.24-alpine AS build
+# Must satisfy the go directive in go.mod: the official image sets
+# GOTOOLCHAIN=local, so an older Go refuses to build rather than downloading.
+FROM golang:1.25-alpine AS build
 ARG VERSION=dev
+RUN apk add --no-cache make
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 # client-go is pure Go; build a static binary so it runs on a minimal base.
-RUN CGO_ENABLED=0 go build -trimpath \
-    -ldflags="-s -w -X main.appVersion=${VERSION}" -o /out/kelper ./cmd/kelper
+# The Makefile owns the ldflags, including the embedded k9s version stamps.
+RUN CGO_ENABLED=0 GOFLAGS=-trimpath make build VERSION=${VERSION} BINARY=/out/kelper
 
 # ---- runtime stage ----
 # kelper shells out to kubectl for command passthrough, so the runtime image

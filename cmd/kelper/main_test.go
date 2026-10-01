@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestFirstCommandSkipsGlobalFlags(t *testing.T) {
 	tests := []struct {
@@ -14,6 +17,10 @@ func TestFirstCommandSkipsGlobalFlags(t *testing.T) {
 		{"kubeconfig flag with inline value", []string{"--kubeconfig=/p", "get", "pods"}, "get", 1},
 		{"kelper subcommand behind a flag", []string{"--kubeconfig", "/p", "kubeconfig", "readonly"}, "kubeconfig", 2},
 		{"flags only", []string{"--kubeconfig", "/p"}, "", 2},
+		{"kubectl namespace flag", []string{"-n", "kube-system", "get", "pods"}, "get", 2},
+		{"kubectl long flags", []string{"--context", "prod", "--namespace=x", "get", "pods"}, "get", 3},
+		{"boolean flag", []string{"--insecure-skip-tls-verify", "get", "pods"}, "get", 1},
+		{"mixed with kubeconfig", []string{"--kubeconfig", "/p", "-n", "ns", "images"}, "images", 4},
 		{"no args", nil, "", 0},
 	}
 	for _, tt := range tests {
@@ -35,20 +42,23 @@ func TestFirstCommandIgnoresFlagValues(t *testing.T) {
 	}
 }
 
-func TestExtractKubeconfigFlag(t *testing.T) {
+func TestSplitKubeconfigFlag(t *testing.T) {
 	tests := []struct {
-		args []string
-		want string
+		args     []string
+		wantPath string
+		wantRest []string
 	}{
-		{[]string{"--kubeconfig", "/p"}, "/p"},
-		{[]string{"--kubeconfig=/p"}, "/p"},
-		{[]string{}, ""},
-		{[]string{"--other"}, ""},
-		{[]string{"--kubeconfig"}, ""}, // dangling flag, no value
+		{[]string{"--kubeconfig", "/p"}, "/p", []string{}},
+		{[]string{"--kubeconfig=/p"}, "/p", []string{}},
+		{[]string{}, "", []string{}},
+		{[]string{"--other"}, "", []string{"--other"}},
+		{[]string{"--kubeconfig"}, "", []string{}}, // dangling flag, no value
+		{[]string{"-n", "ns", "--kubeconfig", "/p", "--context", "c"}, "/p", []string{"-n", "ns", "--context", "c"}},
 	}
 	for _, tt := range tests {
-		if got := extractKubeconfigFlag(tt.args); got != tt.want {
-			t.Errorf("extractKubeconfigFlag(%v) = %q, want %q", tt.args, got, tt.want)
+		path, rest := splitKubeconfigFlag(tt.args)
+		if path != tt.wantPath || !slices.Equal(rest, tt.wantRest) {
+			t.Errorf("splitKubeconfigFlag(%v) = (%q, %v), want (%q, %v)", tt.args, path, rest, tt.wantPath, tt.wantRest)
 		}
 	}
 }

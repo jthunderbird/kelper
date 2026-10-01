@@ -2,6 +2,7 @@ package kubeconfig
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -251,14 +252,14 @@ func (m wizardModel) totalSteps() int {
 func runTUI(kubeconfigPath string) error {
 	m := NewWizardModel()
 	m.opts.KubeconfigPath = kubeconfigPath
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithOutput(os.Stderr))
 	result, err := p.Run()
 	if err != nil {
 		return err
 	}
 	final, ok := result.(wizardModel)
 	if !ok || !final.confirmed {
-		fmt.Println("Cancelled.")
+		fmt.Fprintln(os.Stderr, "Cancelled.")
 		return nil
 	}
 	return Create(final.opts)

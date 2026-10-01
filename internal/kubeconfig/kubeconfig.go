@@ -234,12 +234,12 @@ func runNonInteractive(opts *Options, kubeconfigPath *string) func(*cobra.Comman
 		}
 		printSummary(*opts)
 		if !opts.SkipConfirm {
-			fmt.Print("Proceed? [y/N]: ")
+			fmt.Fprint(os.Stderr, "Proceed? [y/N]: ")
 			scanner := bufio.NewScanner(os.Stdin)
 			scanner.Scan()
 			answer := strings.TrimSpace(scanner.Text())
 			if !strings.EqualFold(answer, "y") {
-				fmt.Println("Cancelled.")
+				fmt.Fprintln(os.Stderr, "Cancelled.")
 				return nil
 			}
 		}
@@ -248,29 +248,29 @@ func runNonInteractive(opts *Options, kubeconfigPath *string) func(*cobra.Comman
 }
 
 func printSummary(opts Options) {
-	fmt.Println("\nSummary:")
-	fmt.Printf("  Type:      %s\n", opts.AccountType)
-	fmt.Printf("  Username:  %s\n", opts.Username)
+	fmt.Fprintln(os.Stderr, "\nSummary:")
+	fmt.Fprintf(os.Stderr, "  Type:      %s\n", opts.AccountType)
+	fmt.Fprintf(os.Stderr, "  Username:  %s\n", opts.Username)
 	if opts.ClusterWide() {
-		fmt.Printf("  Scope:     cluster-wide (all namespaces)\n")
+		fmt.Fprintf(os.Stderr, "  Scope:     cluster-wide (all namespaces)\n")
 	} else {
-		fmt.Printf("  Scope:     namespace %s\n", opts.Namespace)
+		fmt.Fprintf(os.Stderr, "  Scope:     namespace %s\n", opts.Namespace)
 	}
 	if len(opts.Verbs) > 0 {
-		fmt.Printf("  Verbs:     %s\n", strings.Join(opts.Verbs, ", "))
+		fmt.Fprintf(os.Stderr, "  Verbs:     %s\n", strings.Join(opts.Verbs, ", "))
 	}
 	if len(opts.Resources) > 0 {
-		fmt.Printf("  Resources: %s\n", strings.Join(opts.Resources, ", "))
+		fmt.Fprintf(os.Stderr, "  Resources: %s\n", strings.Join(opts.Resources, ", "))
 	}
 	if len(opts.APIGroups) > 0 {
-		fmt.Printf("  APIGroups: %s\n", strings.Join(displayAPIGroups(opts.APIGroups), ", "))
+		fmt.Fprintf(os.Stderr, "  APIGroups: %s\n", strings.Join(displayAPIGroups(opts.APIGroups), ", "))
 	}
 	if opts.OutputFile != "" {
-		fmt.Printf("  Output:    %s\n", opts.OutputFile)
+		fmt.Fprintf(os.Stderr, "  Output:    %s\n", opts.OutputFile)
 	} else {
-		fmt.Printf("  Output:    stdout\n")
+		fmt.Fprintf(os.Stderr, "  Output:    stdout\n")
 	}
-	fmt.Println()
+	fmt.Fprintln(os.Stderr)
 }
 
 // Create executes the full kubeconfig generation flow.
@@ -281,38 +281,38 @@ func Create(opts Options) error {
 	}
 	ctx := context.Background()
 
-	fmt.Print("Generating RSA key... ")
+	fmt.Fprint(os.Stderr, "Generating RSA key... ")
 	keyPEM, err := GenerateRSAKey()
 	if err != nil {
 		return err
 	}
-	fmt.Println("done")
+	fmt.Fprintln(os.Stderr, "done")
 
-	fmt.Print("Submitting and approving CSR... ")
+	fmt.Fprint(os.Stderr, "Submitting and approving CSR... ")
 	certPEM, err := submitAndApproveCSR(ctx, cs, opts.Username, keyPEM)
 	if err != nil {
 		return err
 	}
-	fmt.Println("done")
+	fmt.Fprintln(os.Stderr, "done")
 
-	fmt.Print("Creating RBAC... ")
+	fmt.Fprint(os.Stderr, "Creating RBAC... ")
 	if err := createRBAC(ctx, cs, opts); err != nil {
 		return err
 	}
-	fmt.Println("done")
+	fmt.Fprintln(os.Stderr, "done")
 
-	fmt.Print("Building kubeconfig... ")
+	fmt.Fprint(os.Stderr, "Building kubeconfig... ")
 	kubeconfigYAML, err := buildKubeconfig(opts, certPEM, keyPEM)
 	if err != nil {
 		return err
 	}
-	fmt.Println("done")
+	fmt.Fprintln(os.Stderr, "done")
 
 	if opts.OutputFile != "" {
 		if err := os.WriteFile(opts.OutputFile, kubeconfigYAML, 0600); err != nil {
 			return fmt.Errorf("write output file: %w", err)
 		}
-		fmt.Printf("Kubeconfig written to %s\n", opts.OutputFile)
+		fmt.Fprintf(os.Stderr, "Kubeconfig written to %s\n", opts.OutputFile)
 	} else {
 		fmt.Print(string(kubeconfigYAML))
 	}

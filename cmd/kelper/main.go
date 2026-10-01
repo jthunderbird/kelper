@@ -74,10 +74,11 @@ func main() {
 		first, cmdIndex := firstCommand(args)
 		isHelpFlag := args[0] == "--help" || args[0] == "-h"
 		if !isHelpFlag && first != "" && !kelperSubcommands[first] {
-			// kubectl rejects flags placed before its subcommand, so kelper's
-			// own global flags are consumed here and re-applied out of band.
-			globalPath := extractKubeconfigFlag(args[:cmdIndex])
-			forwarded := args[cmdIndex:]
+			// --kubeconfig is consumed here so failover can resolve it, and is
+			// re-applied out of band. Any other leading flags (-n, --context,
+			// ...) are kubectl's and are forwarded in place.
+			globalPath, leading := splitKubeconfigFlag(args[:cmdIndex])
+			forwarded := append(leading, args[cmdIndex:]...)
 			// Intercept: get -o yaml (and not --raw)
 			if first == "get" && isYAMLOutput(forwarded) && !hasFlag(forwarded, "--raw") {
 				// Client init needed for get interception.
@@ -165,36 +166,78 @@ func main() {
 	}
 }
 
+// valueFlags are the kubectl global flags (plus kelper's --kubeconfig) whose
+// value may follow as a separate argument. firstCommand must skip that value,
+// or `kelper -n kube-system get pods` would route on "kube-system".
+var valueFlags = map[string]bool{
+	"--kubeconfig":            true,
+	"-n":                      true,
+	"--namespace":             true,
+	"--context":               true,
+	"--cluster":               true,
+	"--user":                  true,
+	"-s":                      true,
+	"--server":                true,
+	"--token":                 true,
+	"--as":                    true,
+	"--as-group":              true,
+	"--as-uid":                true,
+	"--certificate-authority": true,
+	"--client-certificate":    true,
+	"--client-key":            true,
+	"--tls-server-name":       true,
+	"--request-timeout":       true,
+	"--cache-dir":             true,
+	"--password":              true,
+	"--username":              true,
+	"--profile":               true,
+	"--profile-output":        true,
+	"-v":                      true,
+	"--v":                     true,
+	"--vmodule":               true,
+	"--log-file":              true,
+	"--log-dir":               true,
+}
+
 // firstCommand returns the first non-flag argument and its index, skipping
-// kelper's own global flags and their values. It returns "" and len(args) when
-// args holds nothing but flags.
+// leading global flags and their values. It returns "" and len(args) when args
+// holds nothing but flags.
 func firstCommand(args []string) (string, int) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if !strings.HasPrefix(a, "-") {
 			return a, i
 		}
-		// --kubeconfig takes its value as a separate argument; the
-		// --kubeconfig=<path> form does not.
-		if a == "--kubeconfig" {
+		// The --flag=value form carries its own value; the separate form
+		// consumes the next argument.
+		if valueFlags[a] {
 			i++
 		}
 	}
 	return "", len(args)
 }
 
-// extractKubeconfigFlag returns the path given by a --kubeconfig flag among
-// args, or "" when the flag is absent.
-func extractKubeconfigFlag(args []string) string {
-	for i, a := range args {
-		if path, ok := strings.CutPrefix(a, "--kubeconfig="); ok {
-			return path
+// splitKubeconfigFlag separates a --kubeconfig flag from the other leading
+// flags in args, returning its path ("" when absent) and the remaining flags.
+func splitKubeconfigFlag(args []string) (string, []string) {
+	var path string
+	rest := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if p, ok := strings.CutPrefix(a, "--kubeconfig="); ok {
+			path = p
+			continue
 		}
-		if a == "--kubeconfig" && i+1 < len(args) {
-			return args[i+1]
+		if a == "--kubeconfig" {
+			if i+1 < len(args) {
+				path = args[i+1]
+				i++
+			}
+			continue
 		}
+		rest = append(rest, a)
 	}
-	return ""
+	return path, rest
 }
 
 // isYAMLOutput returns true if args contain -o yaml or -oyaml.

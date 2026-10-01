@@ -12,6 +12,7 @@ import (
 	certsv1 "k8s.io/api/certificates/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -216,20 +217,24 @@ func (p *ListProvider) Snapshot(ctx context.Context) (*Snapshot, error) {
 	opts := metav1.ListOptions{}
 
 	var (
-		mu   sync.Mutex
-		wg   sync.WaitGroup
-		errs []error
+		mu    sync.Mutex
+		wg    sync.WaitGroup
+		errs  []error
+		names []string
 	)
 	// fetch runs one list call, recording any error without aborting the rest:
 	// a partial snapshot is more useful than none, and RBAC often denies a
 	// subset of resources.
+	fetches := 0
 	fetch := func(name string, fn func() error) {
+		fetches++
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			if err := fn(); err != nil {
 				mu.Lock()
 				errs = append(errs, fmt.Errorf("%s: %w", name, err))
+				names = append(names, name)
 				mu.Unlock()
 			}
 		}()
@@ -341,13 +346,38 @@ func (p *ListProvider) Snapshot(ctx context.Context) (*Snapshot, error) {
 	})
 
 	wg.Wait()
-	s.index()
 
-	// Report denied resources as degradation rather than failing the run.
-	for _, err := range errs {
+	// A partial failure is usually RBAC denying a subset of resources, and is
+	// reported as degradation. Total failure means the cluster could not be
+	// read at all (unreachable, bad credentials); reporting that as an empty,
+	// healthy snapshot would pass a CI gate against a dead cluster.
+	if len(errs) == fetches {
+		return nil, unreadableClusterError(errs)
+	}
+
+	s.index()
+	// Copy before appending so the shared capability notes are never mutated.
+	s.degraded = append([]string(nil), s.degraded...)
+	for i, err := range errs {
+		// A Forbidden error repeats the user and resource in a long sentence;
+		// the resource name alone says the same thing on a one-line summary.
+		if apierrors.IsForbidden(err) {
+			s.degraded = append(s.degraded, fmt.Sprintf("%s: list denied", names[i]))
+			continue
+		}
 		s.degraded = append(s.degraded, err.Error())
 	}
 	return s, nil
+}
+
+// unreadableClusterError reports a total read failure. Every resource usually
+// fails for the same reason (connection refused, expired credentials), so the
+// first error stands for the rest rather than repeating it per resource.
+func unreadableClusterError(errs []error) error {
+	if len(errs) == 1 {
+		return fmt.Errorf("could not read cluster state: %w", errs[0])
+	}
+	return fmt.Errorf("could not read cluster state: %w (and %d more failures)", errs[0], len(errs)-1)
 }
 
 // NewSnapshotForTest builds a snapshot from hand-made fixtures, applying the

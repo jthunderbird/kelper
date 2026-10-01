@@ -80,24 +80,30 @@ func DetectCapabilities(ctx context.Context, kube kubernetes.Interface, disco di
 
 // canAccess runs a SelfSubjectAccessReview, treating any error as denial.
 func canAccess(ctx context.Context, kube kubernetes.Interface, verb, group, resource, subresource string) bool {
+	allowed, _ := accessReview(ctx, kube, authv1.ResourceAttributes{
+		Verb:        verb,
+		Group:       group,
+		Resource:    resource,
+		Subresource: subresource,
+	})
+	return allowed
+}
+
+// accessReview runs a SelfSubjectAccessReview for attrs. The error is non-nil
+// only when the review itself could not be performed, which lets callers tell
+// a denial apart from an unreachable cluster.
+func accessReview(ctx context.Context, kube kubernetes.Interface, attrs authv1.ResourceAttributes) (bool, error) {
 	if kube == nil {
-		return false
+		return false, fmt.Errorf("no client")
 	}
 	review := &authv1.SelfSubjectAccessReview{
-		Spec: authv1.SelfSubjectAccessReviewSpec{
-			ResourceAttributes: &authv1.ResourceAttributes{
-				Verb:        verb,
-				Group:       group,
-				Resource:    resource,
-				Subresource: subresource,
-			},
-		},
+		Spec: authv1.SelfSubjectAccessReviewSpec{ResourceAttributes: &attrs},
 	}
 	res, err := kube.AuthorizationV1().SelfSubjectAccessReviews().Create(ctx, review, metav1.CreateOptions{})
 	if err != nil {
-		return false
+		return false, err
 	}
-	return res.Status.Allowed
+	return res.Status.Allowed, nil
 }
 
 // short trims an error to its first line so degraded notes stay one line.
