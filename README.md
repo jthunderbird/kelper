@@ -295,8 +295,8 @@ $ kelper pull keycloak-869969bcc7-sk7bf -n keycloak
 kelper pull will change pod keycloak/keycloak-869969bcc7-sk7bf:
   - add ephemeral container "kelper-pull-092829" running quay.io/keycloak/keycloak:26.0 to pull the image from inside the pod
   - the container stops when the pull ends, or after 10m0s at the latest
-  - Kubernetes cannot remove ephemeral containers: it stays in the pod spec,
-    stopped, until the pod is recreated
+  - as with kubectl debug, the stopped container stays listed on the pod
+    until the pod is next recreated; nothing keeps running
 Continue? [y/N]: y
 Waiting for helper container kelper-pull-092829...
 Saved keycloak_09a381c715ab.tar (quay.io/keycloak/keycloak:26.0, 226.8 MiB) in 4.4s
@@ -318,10 +318,11 @@ kelper pull web-0 --ca registry-ca.pem          # private registry CA
 kelper pull web-0 -y                            # skip the confirmation prompt
 ```
 
-**The pod is changed.** Kubernetes cannot remove ephemeral containers, so each
-pull leaves a stopped helper container in the pod spec until the pod is
-recreated. kelper asks before making the change. The helper always stops on
-its own by `--timeout`, even if kelper is interrupted.
+**The pod is changed.** Like `kubectl debug`, each pull adds an ephemeral
+container; once stopped it stays listed on the pod until the pod is next
+recreated, with nothing left running. kelper asks before making the change.
+The helper always stops on its own by `--timeout`, even if kelper is
+interrupted.
 
 **Helper image.** The helper runs the target's own image (already on the node,
 so nothing is pulled), which must provide `sh`, `cat`, `chmod`, `sleep` and

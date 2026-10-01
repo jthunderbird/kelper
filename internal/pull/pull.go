@@ -57,9 +57,9 @@ and pulls the image by its running digest through the pod's own network path,
 streaming the archive back to your machine. Pull secrets from the pod and its
 service account are used for authentication.
 
-This changes the pod: Kubernetes cannot remove ephemeral containers, so the
-stopped helper stays in the pod spec until the pod is recreated. kelper asks
-before making the change; pass -y to skip the prompt.
+This changes the pod in the same way kubectl debug does: the stopped helper
+stays listed on the pod until the pod is next recreated, though nothing keeps
+running. kelper asks before making the change; pass -y to skip the prompt.
 
 The helper runs the target's own image, which must provide sh, cat, chmod,
 sleep and rm. For images without a shell (distroless, scratch) pass
@@ -257,8 +257,8 @@ func confirm(stdin io.Reader, stderr io.Writer, t *target, name, image string, t
 	fmt.Fprintf(stderr, "kelper pull will change pod %s/%s:\n", t.Pod.Namespace, t.Pod.Name)
 	fmt.Fprintf(stderr, "  - add ephemeral container %q running %s to pull the image from inside the pod\n", name, image)
 	fmt.Fprintf(stderr, "  - the container stops when the pull ends, or after %s at the latest\n", timeout)
-	fmt.Fprintf(stderr, "  - Kubernetes cannot remove ephemeral containers: it stays in the pod spec,\n")
-	fmt.Fprintf(stderr, "    stopped, until the pod is recreated\n")
+	fmt.Fprintf(stderr, "  - as with kubectl debug, the stopped container stays listed on the pod\n")
+	fmt.Fprintf(stderr, "    until the pod is next recreated; nothing keeps running\n")
 	fmt.Fprint(stderr, "Continue? [y/N]: ")
 	answer, err := bufio.NewReader(stdin).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {

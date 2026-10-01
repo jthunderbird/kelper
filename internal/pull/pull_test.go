@@ -198,7 +198,7 @@ func TestConfirm(t *testing.T) {
 		if err != nil || ok != want {
 			t.Errorf("answer %q: got (%v, %v), want %v", answer, ok, err, want)
 		}
-		if !strings.Contains(out.String(), "cannot remove ephemeral containers") {
+		if !strings.Contains(out.String(), "stays listed on the pod") {
 			t.Errorf("prompt does not explain the lasting change: %q", out.String())
 		}
 	}
