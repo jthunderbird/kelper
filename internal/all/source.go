@@ -20,8 +20,12 @@ import (
 // its own printer columns, custom resources included.
 const tableAccept = "application/json;as=Table;v=v1;g=meta.k8s.io,application/json"
 
-// listTimeout bounds one list call.
+// listTimeout bounds one list request. A type is listed in pages, so a large
+// type takes many requests rather than one long one.
 const listTimeout = 30 * time.Second
+
+// pageSize is how many objects one list request asks for, as kubectl does.
+const pageSize = 500
 
 // APISource is the Source backed by a live cluster.
 type APISource struct {
@@ -92,19 +96,58 @@ func apiPath(r Resource, namespace string) string {
 	return base + "/" + r.GVR.Resource
 }
 
-// Table implements Source.
+// Table implements Source. The type is listed in pages of pageSize and the
+// pages are joined into one table.
 func (s *APISource) Table(ctx context.Context, r Resource, namespace, selector string) (*Table, error) {
+	var out *Table
+	token := ""
+	for {
+		raw, err := s.tablePage(ctx, r, namespace, selector, token)
+		if err != nil {
+			return nil, err
+		}
+		page, err := ParseTable(raw)
+		if err != nil {
+			return nil, err
+		}
+		if out == nil {
+			out = page
+		} else {
+			out.Rows = append(out.Rows, page.Rows...)
+		}
+		if token = continueToken(raw); token == "" {
+			return out, nil
+		}
+	}
+}
+
+func (s *APISource) tablePage(ctx context.Context, r Resource, namespace, selector, token string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, listTimeout)
 	defer cancel()
-	req := s.REST.Get().AbsPath(apiPath(r, namespace)).SetHeader("Accept", tableAccept)
+	req := s.REST.Get().AbsPath(apiPath(r, namespace)).
+		SetHeader("Accept", tableAccept).
+		Param("limit", strconv.Itoa(pageSize))
 	if selector != "" {
 		req = req.Param("labelSelector", selector)
 	}
-	raw, err := req.DoRaw(ctx)
-	if err != nil {
-		return nil, err
+	if token != "" {
+		req = req.Param("continue", token)
 	}
-	return ParseTable(raw)
+	return req.DoRaw(ctx)
+}
+
+// continueToken is the token for the next page of a table or list response, or
+// "" on the last page.
+func continueToken(raw []byte) string {
+	var page struct {
+		Metadata struct {
+			Continue string `json:"continue"`
+		} `json:"metadata"`
+	}
+	if json.Unmarshal(raw, &page) != nil {
+		return ""
+	}
+	return page.Metadata.Continue
 }
 
 // ParseTable reads a server table. APIs that ignore the table request answer
@@ -182,24 +225,36 @@ func cell(v any) string {
 	}
 }
 
-// Objects implements Source.
+// Objects implements Source. Like Table, it lists in pages.
 func (s *APISource) Objects(ctx context.Context, r Resource, namespace, selector string) ([]unstructured.Unstructured, error) {
-	ctx, cancel := context.WithTimeout(ctx, listTimeout)
-	defer cancel()
 	var ri dynamic.ResourceInterface = s.Dynamic.Resource(r.GVR)
 	if namespace != "" {
 		ri = s.Dynamic.Resource(r.GVR).Namespace(namespace)
 	}
-	list, err := ri.List(ctx, metav1.ListOptions{LabelSelector: selector})
-	if err != nil {
-		return nil, err
-	}
-	for i := range list.Items {
-		// A list response leaves kind and apiVersion off its items.
-		if list.Items[i].GetKind() == "" {
-			list.Items[i].SetKind(r.Kind)
-			list.Items[i].SetAPIVersion(r.GVR.GroupVersion().String())
+	var out []unstructured.Unstructured
+	opts := metav1.ListOptions{LabelSelector: selector, Limit: pageSize}
+	for {
+		list, err := listPage(ctx, ri, opts)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, list.Items...)
+		if opts.Continue = list.GetContinue(); opts.Continue == "" {
+			break
 		}
 	}
-	return list.Items, nil
+	for i := range out {
+		// A list response leaves kind and apiVersion off its items.
+		if out[i].GetKind() == "" {
+			out[i].SetKind(r.Kind)
+			out[i].SetAPIVersion(r.GVR.GroupVersion().String())
+		}
+	}
+	return out, nil
+}
+
+func listPage(ctx context.Context, ri dynamic.ResourceInterface, opts metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+	ctx, cancel := context.WithTimeout(ctx, listTimeout)
+	defer cancel()
+	return ri.List(ctx, opts)
 }
