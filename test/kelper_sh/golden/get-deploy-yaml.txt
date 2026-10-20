@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: demo
+  labels:
+    app: web
+  annotations:
+    note: |
+      line one
+      line two
+    ratio: "1.5"
+    empty: ""
+    flag: "true"
+    path: /var/lib/data
+    cmd: sh -c 'exit 0'
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+      - name: app
+        image: nginx:1.25
+        args:
+        - --port
+        - "8080"
+        - -v
+        env: []
+        ports:
+        - containerPort: 8080

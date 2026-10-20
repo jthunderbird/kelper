@@ -1,0 +1,4 @@
+{"apiVersion":"v1","kind":"List","items":[
+ {"apiVersion":"apps/v1","kind":"Deployment","metadata":{"name":"web","namespace":"demo"},"spec":{"replicas":2},"status":{"availableReplicas":0}},
+ {"apiVersion":"apps/v1","kind":"StatefulSet","metadata":{"name":"db","namespace":"demo"},"spec":{"replicas":3},"status":{"readyReplicas":2}},
+ {"apiVersion":"apps/v1","kind":"DaemonSet","metadata":{"name":"agent","namespace":"demo"},"spec":{},"status":{"desiredNumberScheduled":3,"numberReady":3}}]}

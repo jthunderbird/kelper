@@ -1,0 +1,37 @@
+pod: web-1 (-n demo)
+────────────────────
+
+  initContainers:
+    init:
+      (none)
+
+  containers:
+    app:
+      limits:
+        cpu: "1"
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    side:
+      (none)
+
+pod: crash-1 (-n demo)
+──────────────────────
+
+  initContainers:
+    (none)
+
+  containers:
+    app:
+      (none)
+
+pod: stuck-1 (-n demo)
+──────────────────────
+
+  initContainers:
+    (none)
+
+  containers:
+    app:
+      (none)

@@ -6,3 +6,6 @@
 
 # Local kubeconfigs / scratch
 kelper-kubeconfig-*.yaml
+
+# kelper-fetch binaries embedded by internal/pull, built by make
+/internal/pull/assets/kelper-fetch-*

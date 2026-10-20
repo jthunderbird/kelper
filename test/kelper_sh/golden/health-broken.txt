@@ -1,0 +1,11 @@
+ERROR (3)
+ NAMESPACE  KIND        NAME     REASON               MESSAGE
+ demo       Deployment  web      ReplicasUnavailable  0/2 replicas available
+ demo       Pod         crash-1  CrashLoopBackOff     container "app" is CrashLoopBackOff
+ demo       Pod         stuck-1  Unschedulable        cannot be scheduled: 0/3 nodes are available
+
+WARN (1)
+ NAMESPACE  KIND         NAME  REASON               MESSAGE
+ demo       StatefulSet  db    ReplicasUnavailable  2/3 replicas available
+
+Summary: 3 ERROR, 1 WARN

@@ -11,16 +11,33 @@ LDFLAGS := -s -w -X main.appVersion=$(VERSION) \
            -X $(K9SPKG).date=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 PREFIX  ?= /usr/local
 
-.PHONY: build test install clean
+# kelper-fetch is injected into pods by `kelper pull`, so it is built for every
+# supported node architecture, independent of the GOOS/GOARCH kelper itself
+# targets, and embedded from internal/pull/assets.
+FETCH_ARCHES := amd64 arm64
+FETCH_DIR    := internal/pull/assets
+FETCHERS     := $(foreach a,$(FETCH_ARCHES),$(FETCH_DIR)/kelper-fetch-linux-$(a))
+FETCH_SRC    := $(shell find cmd/kelper-fetch internal/pull/fetchproto -name '*.go' -not -name '*_test.go') go.mod go.sum
 
-build:
+.PHONY: build fetchers test test-sh install clean
+
+build: $(FETCHERS)
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
+
+fetchers: $(FETCHERS)
+
+$(FETCH_DIR)/kelper-fetch-linux-%: $(FETCH_SRC)
+	CGO_ENABLED=0 GOOS=linux GOARCH=$* go build -trimpath -ldflags "-s -w" -o $@ ./cmd/kelper-fetch
 
 test:
 	go test ./...
+
+# Offline tests of the bash edition; needs jq.
+test-sh:
+	bash test/kelper_sh/test_kelper_sh.sh
 
 install: build
 	install -m 0755 $(BINARY) $(PREFIX)/bin/$(BINARY)
 
 clean:
-	rm -f $(BINARY)
+	rm -f $(BINARY) $(FETCHERS)

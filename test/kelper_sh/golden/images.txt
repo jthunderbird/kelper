@@ -1,0 +1,32 @@
+pod: web-1 (-n demo)
+────────────────────
+
+  initContainers:
+    init:
+      image: busybox:1.37
+
+  containers:
+    app:
+      image: registry.example.com/web:1.25.3
+    side:
+      image: alpine:3.20
+
+pod: crash-1 (-n demo)
+──────────────────────
+
+  initContainers:
+    (none)
+
+  containers:
+    app:
+      image: busybox:1.37
+
+pod: stuck-1 (-n demo)
+──────────────────────
+
+  initContainers:
+    (none)
+
+  containers:
+    app:
+      image: busybox:1.37

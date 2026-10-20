@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stub kubectl for test_kelper_sh.sh: answers from fixtures, echoes anything else.
+d=$(dirname "$0")/fixtures
+case "$*" in
+  *"get pods"*) cat "$d/${STUB_PODS:-pods}.json" ;;
+  *"get deployments,statefulsets,daemonsets,jobs"*) cat "$d/${STUB_WORKLOADS:-workloads}.json" ;;
+  *"get deploy "*) cat "$d/deploy.json" ;;
+  *"get secret "*) cat "$d/secret.json" ;;
+  *"get nodes"*|*"get persistentvolumeclaims"*|*"get services"*|*"get endpointslices"*) echo '{"items":[]}' ;;
+  *) echo "KUBECTL $*" ;;
+esac
