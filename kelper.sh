@@ -604,8 +604,9 @@ EOF
     [ -n "$KC_VERBS" ] || die "scoped accounts need --verbs"
   fi
   if [ -n "$KC_USER" ]; then
-    [[ $KC_USER =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] && [ ${#KC_USER} -le 63 ] \
-      || die "username \"$KC_USER\" must be lowercase letters, digits, - or . (RFC 1123, max 63)"
+    if ! [[ $KC_USER =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]] || [ ${#KC_USER} -gt 63 ]; then
+      die "username \"$KC_USER\" must be lowercase letters, digits, - or . (RFC 1123, max 63)"
+    fi
   fi
   command -v openssl >/dev/null 2>&1 || die "openssl is required to create a user key and certificate request"
   if [ -z "$KC_USER" ]; then KC_USER="$KC_TYPE-$(openssl rand -hex 4)"; fi
