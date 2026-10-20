@@ -1,0 +1,31 @@
+{
+ "kind": "APIResourceList",
+ "groupVersion": "apps/v1",
+ "resources": [
+  {
+   "name": "deployments",
+   "singularName": "",
+   "namespaced": true,
+   "kind": "Deployment",
+   "verbs": [
+    "get",
+    "list",
+    "watch"
+   ],
+   "shortNames": [
+    "deploy"
+   ]
+  },
+  {
+   "name": "deployments/scale",
+   "singularName": "",
+   "namespaced": true,
+   "kind": "Scale",
+   "verbs": [
+    "get",
+    "list",
+    "watch"
+   ]
+  }
+ ]
+}

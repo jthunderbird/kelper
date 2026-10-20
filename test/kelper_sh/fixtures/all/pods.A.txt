@@ -1,0 +1,3 @@
+NAMESPACE   NAME    READY   STATUS    AGE
+prod        web-1   1/1     Running   3d
+data        db-0    0/1     Pending   1d

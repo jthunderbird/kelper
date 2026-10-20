@@ -1,0 +1,16 @@
+apiVersion: v1
+items:
+- apiVersion: v1
+  kind: Pod
+  metadata:
+    name: web-1
+    namespace: prod
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: web
+    namespace: prod
+  spec:
+    replicas: 2
+kind: List
+Skipped: secrets (secrets is forbidden: User "u" cannot list resource "secrets" in API group "" in)

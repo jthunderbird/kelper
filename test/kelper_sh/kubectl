@@ -1,6 +1,34 @@
 #!/usr/bin/env bash
 # Stub kubectl for test_kelper_sh.sh: answers from fixtures, echoes anything else.
 d=$(dirname "$0")/fixtures
+# Leading kubectl global flags (-n prod get ...) are not part of the request.
+args=("$@")
+while [[ ${args[0]:-} == -* ]]; do args=("${args[@]:2}"); done
+# Discovery documents for `kelper.sh all`.
+if [ "${args[0]:-}" = get ] && [ "${args[1]:-}" = --raw ]; then
+  case ${args[2]} in
+    /api/v1) cat "$d/all/api-v1.json" ;;
+    /apis) cat "$d/all/apis.json" ;;
+    /apis/*) f="$d/all/apis-$(echo "${args[2]#/apis/}" | tr / -).json"; if [ -f "$f" ]; then cat "$f"; else echo "Error from server (NotFound): ${args[2]}" >&2; exit 1; fi ;;
+    *) echo "Error from server (NotFound): ${args[2]}" >&2; exit 1 ;;
+  esac
+  exit 0
+fi
+# One type's listing for `kelper.sh all` (STUB_ALL=1): table, or JSON with -o json.
+if [ -n "${STUB_ALL:-}" ]; then
+  type=${args[1]}; scope=ns; want=txt; prev=""
+  for a in "${args[@]}"; do
+    [ "$a" = -A ] && scope=A
+    [ "$prev" = -n ] && [ "$a" = empty ] && scope=none
+    [ "$prev" = -o ] && [ "$a" = json ] && want=json
+    prev=$a
+  done
+  if [ -f "$d/all/$type.$scope.err" ]; then cat "$d/all/$type.$scope.err" >&2; exit 1; fi
+  if [ -f "$d/all/$type.$scope.$want" ]; then cat "$d/all/$type.$scope.$want"
+  elif [ "$want" = json ]; then echo '{"apiVersion":"v1","kind":"List","items":[]}'
+  else echo "No resources found" >&2; fi
+  exit 0
+fi
 case "$*" in
   *"get pods"*) cat "$d/${STUB_PODS:-pods}.json" ;;
   *"get deployments,statefulsets,daemonsets,jobs"*) cat "$d/${STUB_WORKLOADS:-workloads}.json" ;;

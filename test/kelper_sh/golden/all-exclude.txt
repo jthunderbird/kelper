@@ -1,0 +1,4 @@
+deployments.apps (1)
+NAMESPACE   NAME   READY   UP-TO-DATE   AVAILABLE   AGE
+prod        web    2/2     2            2           3d
+Skipped: secrets (secrets is forbidden: User "u" cannot list resource "secrets" in API group "" at)

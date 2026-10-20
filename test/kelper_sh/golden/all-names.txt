@@ -1,0 +1,5 @@
+node/n1
+prod/pod/web-1
+data/pod/db-0
+prod/deployment.apps/web
+Skipped: secrets (secrets is forbidden: User "u" cannot list resource "secrets" in API group "" at)

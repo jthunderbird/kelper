@@ -1,0 +1,3 @@
+pod/web-1
+deployment.apps/web
+Skipped: secrets (secrets is forbidden: User "u" cannot list resource "secrets" in API group "" in)

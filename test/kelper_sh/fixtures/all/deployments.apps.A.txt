@@ -1,0 +1,2 @@
+NAMESPACE   NAME   READY   UP-TO-DATE   AVAILABLE   AGE
+prod        web    2/2     2            2           3d

@@ -1,0 +1,33 @@
+{
+    "apiVersion": "v1",
+    "items": [
+        {
+            "apiVersion": "v1",
+            "kind": "Pod",
+            "metadata": {
+                "name": "web-1",
+                "namespace": "prod",
+                "resourceVersion": "1",
+                "uid": "u-web-1"
+            },
+            "status": {
+                "phase": "Running"
+            }
+        },
+        {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {
+                "name": "web",
+                "namespace": "prod",
+                "resourceVersion": "1",
+                "uid": "u-web"
+            },
+            "spec": {
+                "replicas": 2
+            }
+        }
+    ],
+    "kind": "List"
+}
+Skipped: secrets (secrets is forbidden: User "u" cannot list resource "secrets" in API group "" in)

@@ -1,0 +1,2 @@
+NAMESPACE   LAST SEEN   TYPE     REASON      OBJECT      MESSAGE
+prod        1m          Normal   Scheduled   pod/web-1   assigned

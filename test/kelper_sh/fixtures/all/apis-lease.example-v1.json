@@ -1,0 +1,17 @@
+{
+ "kind": "APIResourceList",
+ "groupVersion": "lease.example/v1",
+ "resources": [
+  {
+   "name": "leases",
+   "singularName": "",
+   "namespaced": true,
+   "kind": "Lease",
+   "verbs": [
+    "get",
+    "list",
+    "watch"
+   ]
+  }
+ ]
+}

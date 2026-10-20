@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/jthunderbird/kelper/internal/all"
 	"github.com/jthunderbird/kelper/internal/client"
 	"github.com/jthunderbird/kelper/internal/completion"
 	"github.com/jthunderbird/kelper/internal/get"
@@ -30,6 +31,7 @@ var appVersion = "dev"
 // kelperSubcommands is the set of first-level subcommands that kelper handles
 // natively. Everything else is transparently forwarded to kubectl.
 var kelperSubcommands = map[string]bool{
+	"all":         true,
 	"healthcheck": true,
 	"health":      true,
 	"k9s":         true,
@@ -126,7 +128,7 @@ func main() {
 			// healthcheck, k9s and pull build their own clients, so the
 			// shared clientset is not needed and its failure should not
 			// block them.
-			case "healthcheck", "health", "k9s", "pull":
+			case "all", "healthcheck", "health", "k9s", "pull":
 				return nil
 			}
 			// Skip if any ancestor is completion (e.g. `kelper completion bash`).
@@ -155,6 +157,7 @@ func main() {
 	root.PersistentFlags().StringVar(&kubeconfigPath, "kubeconfig", "", "path to kubeconfig file (default: $KUBECONFIG or ~/.kube/config)")
 
 	// Register feature subcommands.
+	root.AddCommand(all.Command(&kubeconfigPath))
 	root.AddCommand(healthcmd.Command(&kubeconfigPath))
 	root.AddCommand(k9sCommand())
 	root.AddCommand(images.Command(&cs))

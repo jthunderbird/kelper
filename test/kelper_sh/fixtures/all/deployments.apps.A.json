@@ -1,0 +1,22 @@
+{
+ "apiVersion": "v1",
+ "kind": "List",
+ "items": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "name": "web",
+    "uid": "u-web",
+    "resourceVersion": "1",
+    "namespace": "prod"
+   },
+   "spec": {
+    "replicas": 2
+   }
+  }
+ ],
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

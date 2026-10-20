@@ -1,0 +1,22 @@
+{
+ "apiVersion": "v1",
+ "kind": "List",
+ "items": [
+  {
+   "apiVersion": "v1",
+   "kind": "Pod",
+   "metadata": {
+    "name": "web-1",
+    "uid": "u-web-1",
+    "resourceVersion": "1",
+    "namespace": "prod"
+   },
+   "status": {
+    "phase": "Running"
+   }
+  }
+ ],
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

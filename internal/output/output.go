@@ -28,6 +28,11 @@ func PodHeader(w io.Writer, podName, namespace string) {
 	fmt.Fprintln(w)
 }
 
+// Heading styles a section heading, such as a resource type in `kelper all`.
+func Heading(s string) string {
+	return podHeaderStyle.Render(s)
+}
+
 // KeyLabel returns a highlighted key label for secret output.
 func KeyLabel(key string) string {
 	return keyLabelStyle.Render("KEY: " + key)

@@ -1,0 +1,19 @@
+{
+ "apiVersion": "v1",
+ "kind": "List",
+ "items": [
+  {
+   "apiVersion": "lease.example/v1",
+   "kind": "Lease",
+   "metadata": {
+    "name": "leader",
+    "uid": "u-leader",
+    "resourceVersion": "1",
+    "namespace": "prod"
+   }
+  }
+ ],
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

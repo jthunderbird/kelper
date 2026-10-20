@@ -1,0 +1,8 @@
+pods (1)
+NAME    READY   STATUS    AGE
+web-1   1/1     Running   3d
+
+deployments.apps (1)
+NAME   READY   UP-TO-DATE   AVAILABLE   AGE
+web    2/2     2            2           3d
+Skipped: secrets (secrets is forbidden: User "u" cannot list resource "secrets" in API group "" in)
