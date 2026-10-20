@@ -6,6 +6,8 @@
 
 A Go binary that wraps `kubectl` with enhanced output formatting and cluster tooling. Zero external tool dependencies — works wherever `kubectl` works.
 
+- **`all`** — what people expect `kubectl get all` to do: every resource type the
+  cluster serves, custom resources included, for one namespace or the whole cluster.
 - **Decodes secrets** automatically on `get ... -o yaml` output.
 - **Cleans up YAML** by stripping the noise Kubernetes injects (`uid`,
   `creationTimestamp`, `resourceVersion`, `status`, and per-kind defaults), so
@@ -76,10 +78,10 @@ alias k=./kelper.sh
 ```
 
 It needs only bash 4+, `kubectl` and `jq` 1.6+ (`kubeconfig` also uses `openssl`), and
-covers `get -o yaml` cleanup with Secret decoding, `images`, `resources`, `volumes`,
+covers `all`, `get -o yaml` cleanup with Secret decoding, `images`, `resources`, `volumes`,
 a simpler `healthcheck` (pods, workloads, nodes, claims, services; `--watch` re-runs
 it on an interval) and `kubeconfig` (flags or a prompt wizard). Its output matches the
-binary for the pod inspectors and `get -o yaml`. It has no `pull`, `k9s`, live
+binary for the pod inspectors, `all` and `get -o yaml`. It has no `pull`, `k9s`, live
 dashboard, api-server failover or shell completion, and its healthcheck skips the
 metrics, volume-usage, certificate and custom-resource checks. Everything else is
 forwarded to `kubectl`. Run `./kelper.sh help` for usage.
@@ -146,6 +148,7 @@ kelper --kubeconfig <path> <args>  # use a specific kubeconfig
 
 | Command       | Description                                                              |
 | ------------- | ------------------------------------------------------------------------ |
+| `all`         | List every resource type, custom resources included.                     |
 | `healthcheck` | Diagnose cluster health (live dashboard when run with no target).        |
 | `k9s`         | Launch the embedded k9s terminal UI.                                     |
 | `images`      | Show container images per pod.                                           |
@@ -290,6 +293,44 @@ changes; metrics, volume stats and certificates refresh on their own timers.
 | `esc` | clear filters |
 | `?` | help |
 | `q` / `ctrl-c` | quit |
+
+### `all`
+
+`kubectl get all` only covers a handful of built-in kinds. `kelper all` discovers every
+listable resource type on the cluster, custom resources and cluster-scoped types included,
+and prints each type's usual kubectl table under a heading (types with nothing in them are
+skipped).
+
+```bash
+$ kelper all -n keycloak
+configmaps (3)
+NAME                 DATA   AGE
+istio-ca-crl         1      12d
+kube-root-ca.crt     1      59d
+...
+ciliumendpoints.cilium.io (1)
+NAME                        SECURITY IDENTITY   ENDPOINT STATE   IPV4          IPV6
+keycloak-869969bcc7-sk7bf   4726                ready            10.42.0.115
+```
+
+With `-n` only that namespace's namespaced types are listed. With `-A`, or with no namespace
+flag at all (there is deliberately no default namespace), every type is listed and the
+listing is very large, so on a terminal kelper warns and asks first. Redirect to a file, or
+pass `-y`, to skip the question.
+
+```bash
+kelper all -A -y > cluster.txt                  # everything, no prompt
+kelper all -n prod -l app=web                   # one namespace, label selector
+kelper all -n prod --exclude secrets,cm         # drop types (names, kinds, short names)
+kelper all --include certificates,issuers -y    # only these types
+kelper all -n prod -o wide                      # extra columns
+kelper all -A -y -o name                        # one kind/name per line (namespace/ prefix across namespaces)
+kelper all -n prod -o yaml                      # one cleaned List (Secret values are not decoded)
+```
+
+Events and leases are skipped unless named with `--include` or `--include-noisy`. A type
+that cannot be listed (permissions, an unhealthy aggregated API) is named on a final
+`Skipped:` line; `all` fails only when nothing can be listed.
 
 ### `k9s`
 

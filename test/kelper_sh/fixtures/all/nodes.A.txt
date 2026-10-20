@@ -1,0 +1,2 @@
+NAME   STATUS   ROLES           AGE   VERSION
+n1     Ready    control-plane   9d    v1.35.5

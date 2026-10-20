@@ -1,0 +1,7 @@
+events (1)
+LAST SEEN   TYPE     REASON      OBJECT      MESSAGE
+1m          Normal   Scheduled   pod/web-1   assigned
+
+pods (1)
+NAME    READY   STATUS    AGE
+web-1   1/1     Running   3d

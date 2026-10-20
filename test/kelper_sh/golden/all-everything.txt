@@ -1,0 +1,13 @@
+nodes (1)
+NAME   STATUS   ROLES           AGE   VERSION
+n1     Ready    control-plane   9d    v1.35.5
+
+pods (2)
+NAMESPACE   NAME    READY   STATUS    AGE
+prod        web-1   1/1     Running   3d
+data        db-0    0/1     Pending   1d
+
+deployments.apps (1)
+NAMESPACE   NAME   READY   UP-TO-DATE   AVAILABLE   AGE
+prod        web    2/2     2            2           3d
+Skipped: secrets (secrets is forbidden: User "u" cannot list resource "secrets" in API group "" at)

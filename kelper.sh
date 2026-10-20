@@ -7,6 +7,7 @@
 #
 # Needs: bash 4+, kubectl and jq 1.6+. `kubeconfig` also needs openssl.
 #
+#   kelper.sh all [-n ns | -A] [-y]    every resource type, custom resources too
 #   kelper.sh get <res> -o yaml        cleaned YAML; Secrets are decoded
 #   kelper.sh images|resources|volumes [pod] [-n ns | -A] [-l selector]
 #   kelper.sh healthcheck [-n ns | -A] [--severity warn] [--watch]
@@ -85,6 +86,8 @@ kelper.sh $KELPER_SH_VERSION - kubectl wrapper (bash edition)
 Usage: kelper.sh [kubectl global flags] <command> [args]
 
 Commands:
+  all                   every resource type on the cluster, custom resources included
+                        (-n ns | -A, -l, -o wide|name|yaml|json, --include/--exclude, -y)
   get <res> -o yaml     cleaned YAML (server noise removed); Secrets are decoded.
                         With -o yaml, --raw gives plain kubectl output.
   healthcheck, health   diagnose pods, workloads, nodes, volumes and services
@@ -152,8 +155,8 @@ def yaml: blk("")[];
 EOF
 )
 
-# `get -o yaml`: decode Secrets, otherwise strip server-populated fields.
-JQ_GET=$(cat <<'EOF'
+# Strip server-populated fields (the same denylist as the Go neat package).
+JQ_NEAT=$(cat <<'EOF'
 def generic: [["metadata","uid"],["metadata","resourceVersion"],["metadata","creationTimestamp"],
   ["metadata","generation"],["metadata","ownerReferences"],["metadata","generateName"],
   ["metadata","finalizers"],["metadata","managedFields"],["status"]];
@@ -179,6 +182,11 @@ def clean1:
 def clean:
   if .kind == "List" then .items |= map(clean1)
   else clean1 end;
+EOF
+)
+
+# `get -o yaml`: decode Secrets, otherwise clean (needs JQ_NEAT).
+JQ_GET=$(cat <<'EOF'
 def has_secret: .kind == "Secret" or (.kind == "List" and any(.items[]?; .kind == "Secret"));
 def secrets: if .kind == "List" then .items[] | select(.kind == "Secret") else . end;
 def decoded: (try @base64d catch "(decode error)");
@@ -367,6 +375,7 @@ cmd_get() { # args after `get`
   json=$(kc get "${out[@]}"); rc=$?
   [ $rc -eq 0 ] || exit $rc
   printf '%s' "$json" | jq -r --argjson color "$COLOR" "$JQ_LIB
+$JQ_NEAT
 $JQ_GET" || exit 1
 }
 
@@ -534,9 +543,17 @@ csv_json() { # "a, b" -> ["a","b"]; "core" means the core API group
   jq -nc --arg s "$1" '$s | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | map(if . == "core" then "" else . end)'
 }
 
+# Prompts go to stderr and are shown even when stdin is a pipe.
+ask() { # ask <var> <prompt>; returns 1 at end of input
+  local ans
+  printf '%s' "$2" >&2
+  read -r ans || { printf -v "$1" '%s' ""; return 1; }
+  printf -v "$1" '%s' "$ans"
+}
+
 kc_prompt() { # kc_prompt <var> <question> [default]
   local ans
-  read -r -p "$2${3:+ [$3]}: " ans || die "no input"
+  ask ans "$2${3:+ [$3]}: " || die "no input"
   printf -v "$1" '%s' "${ans:-${3:-}}"
 }
 
@@ -644,7 +661,7 @@ EOF
   info "  rules: $(jq -c . <<<"$rules")"
   if [ "$yes" = 0 ]; then
     local ans
-    read -r -p "Continue? [y/N]: " ans || ans=n
+    ask ans "Continue? [y/N]: " || ans=n
     case $ans in y|Y|yes|YES) ;; *) info "Cancelled."; exit 0 ;; esac
   fi
 
@@ -706,6 +723,229 @@ $JQ_KUBECONFIG") || die "could not build the kubeconfig"
 }
 
 # ---------------------------------------------------------------------------
+# all
+# ---------------------------------------------------------------------------
+
+# Every listable type from the discovery documents given as files: one TSV row
+# per type (resource[.group], kind, group or "-" for core, namespaced), in display order.
+JQ_ALL_TYPES=$(cat <<'EOF'
+def lower: ascii_downcase;
+def norm($s): [$s | split(",")[] | gsub("^\\s+|\\s+$"; "") | lower | select(length > 0)];
+def full: .name + (if .group == "" then "" else "." + .group end);
+def hits($names): . as $r
+  | any($names[]; . as $n
+      | $n == ($r.name | lower) or $n == ($r | full | lower) or $n == ($r.kind | lower)
+        or any(($r.short // [])[]; lower == $n));
+(norm($incl)) as $inc | (norm($excl)) as $exc
+| [ .[] | .groupVersion as $gv
+    | ($gv | if contains("/") then split("/") else ["", .] end) as $p
+    | .resources[]?
+    | select((.name | contains("/") | not) and ((.verbs // []) | index("list")))
+    | {group: $p[0], version: $p[1], name: .name, kind: .kind, namespaced: .namespaced, short: (.shortNames // [])} ] as $all
+| ($all | any(.[]; .name == "events" and .group == "")) as $core_events
+| $all
+| map(select(($nsonly | not) or .namespaced))
+| map(select((($core_events and .name == "events" and .group == "events.k8s.io") | not)))
+| map(. as $r
+    | (($inc | length) > 0 and ($r | hits($inc))) as $explicit
+    | select(($inc | length) == 0 or $explicit)
+    | select(($r | hits($exc)) | not)
+    | select($explicit or $noisy or ((["events", "leases"] | index($r.name)) | not)))
+| sort_by([(.group != ""), .group, .name])
+| .[] | [full, .kind, (if .group == "" then "-" else .group end), (.namespaced | tostring)] | @tsv
+EOF
+)
+
+# Discovery documents into $T/disc, one request per API group, 8 at a time.
+all_discover() {
+  mkdir -p "$T/disc"
+  local gvs gv i=0 running=0
+  kc get --raw /api/v1 >"$T/disc/core.json" 2>"$T/disc/core.err" || DEGRADED+=("core ($(err_line "$T/disc/core.err"))")
+  gvs=$(kc get --raw /apis 2>"$T/disc/apis.err" | jq -r '.groups[]? | .preferredVersion.groupVersion') \
+    || die "could not read the cluster's API groups: $(err_line "$T/disc/apis.err")"
+  [ -s "$T/disc/core.json" ] || [ -n "$gvs" ] || die "could not read the cluster's API groups: $(err_line "$T/disc/apis.err")"
+  for gv in $gvs; do
+    i=$((i + 1))
+    ( kc get --raw "/apis/$gv" >"$T/disc/$i.json" 2>"$T/disc/$i.err" || echo "$gv ($(err_line "$T/disc/$i.err"))" >"$T/disc/$i.failed" ) &
+    running=$((running + 1))
+    if [ "$running" -ge 8 ]; then wait_one; running=$((running - 1)); fi
+  done
+  wait
+  local f
+  for f in "$T"/disc/*.failed; do
+    [ -e "$f" ] || continue
+    DEGRADED+=("$(cat "$f")")
+  done
+}
+
+# First line of an error file, without kubectl's "Error from server" prefix.
+err_line() {
+  head -n1 "$1" | sed -e 's/^[Ee]rror from server ([^)]*): //' -e 's/^[Ee]rror: //' | cut -c1-80
+}
+
+wait_one() {
+  if [ "${BASH_VERSINFO[0]}" -gt 4 ] || [ "${BASH_VERSINFO[1]}" -ge 3 ]; then wait -n; else wait; fi
+}
+
+# List one type into $T/<idx>.out (and .err, .rc).
+all_fetch() { # all_fetch <idx> <resource[.group]> <namespaced>
+  local idx=$1 full=$2 namespaced=$3 args=()
+  args=("$full")
+  if [ "$namespaced" = true ]; then
+    if [ -n "$A_NS" ]; then args+=(-n "$A_NS"); else args+=(-A); fi
+  fi
+  [ -z "$SELECTOR" ] || args+=(-l "$SELECTOR")
+  case $A_OUT in
+    wide) args+=(-o wide) ;;
+    name|yaml|json) args+=(-o json) ;;
+  esac
+  kc get "${args[@]}" >"$T/$idx.out" 2>"$T/$idx.err"
+  echo $? >"$T/$idx.rc"
+}
+
+cmd_all() {
+  need_jq
+  local include="" exclude="" noisy=false yes=0 a n
+  A_OUT=""
+  while [ $# -gt 0 ]; do
+    a=$1
+    parse_common_flag "$a" "${2:-}"
+    if [ "$FLAG_CONSUMED" -gt 0 ]; then
+      [ "$FLAG_CONSUMED" -le $# ] || die "$a needs a value"
+      shift "$FLAG_CONSUMED"; continue
+    fi
+    case $a in
+      --include) include+=",${2:-}"; shift ;;
+      --include=*) include+=",${a#*=}" ;;
+      --exclude) exclude+=",${2:-}"; shift ;;
+      --exclude=*) exclude+=",${a#*=}" ;;
+      --include-noisy) noisy=true ;;
+      -o|--output) A_OUT=${2:-}; shift ;;
+      --output=*) A_OUT=${a#*=} ;;
+      -o?*) A_OUT=${a#-o} ;;
+      -y|--yes) yes=1 ;;
+      -h|--help)
+        cat <<EOF
+usage: kelper.sh all [-n namespace | -A] [-l selector] [-o wide|name|yaml|json]
+                     [--include types] [--exclude types] [--include-noisy] [-y]
+Lists every resource type the cluster serves, custom resources included. With -n only that
+namespace's namespaced types; with -A or no namespace flag, every type (cluster-scoped too),
+after a warning and a prompt on a terminal. -y skips the prompt. Events and leases are skipped
+unless named with --include or --include-noisy.
+EOF
+        exit 0 ;;
+      *) die "unknown argument $a" ;;
+    esac
+    shift
+  done
+  case $A_OUT in ""|wide|name|yaml|json) ;; *) die "unsupported output \"$A_OUT\" (use wide, name, yaml or json)" ;; esac
+
+  # A namespace given before the command (kelper.sh -n ns all) counts too.
+  if [ -z "$NS" ] && [ "$ALLNS" = 0 ]; then
+    for ((n = 0; n < ${#GLOBAL[@]}; n++)); do
+      case ${GLOBAL[n]} in
+        -n|--namespace) NS=${GLOBAL[n+1]:-} ;;
+        --namespace=*) NS=${GLOBAL[n]#*=} ;;
+      esac
+    done
+  fi
+  A_NS=$NS
+  [ "$ALLNS" = 0 ] || A_NS=""
+
+  if [ -z "$A_NS" ] && [ "$yes" = 0 ] && [ -t 1 ]; then
+    info "kelper all will list every resource type in every namespace, including cluster-scoped"
+    info "ones. That is usually a very large amount of output; consider redirecting it to a file"
+    info "(kelper.sh all > cluster.txt) or narrowing with -n NAMESPACE."
+    ask a "Continue? [y/N]: " || a=n
+    case $a in y|Y|yes|YES) ;; *) info "Cancelled."; exit 0 ;; esac
+  fi
+
+  T=$(mktemp -d) || die "cannot create a temporary directory"
+  trap 'rm -rf "$T"' EXIT
+  DEGRADED=()
+  all_discover
+
+  local files=() f nsonly=false
+  for f in "$T"/disc/*.json; do [ -s "$f" ] && files+=("$f"); done
+  [ -z "$A_NS" ] || nsonly=true
+  jq -rs --arg incl "$include" --arg excl "$exclude" --argjson noisy "$noisy" --argjson nsonly "$nsonly" \
+    "$JQ_ALL_TYPES" "${files[@]}" >"$T/types.tsv" || die "could not read the discovery documents"
+  if [ ! -s "$T/types.tsv" ]; then
+    [ ${#DEGRADED[@]} -eq 0 ] || die "discovery failed: ${DEGRADED[0]}"
+    die "no matching resource types"
+  fi
+
+  local idx=0 running=0 full kind group namespaced
+  while IFS=$'\t' read -r full kind group namespaced; do
+    idx=$((idx + 1))
+    all_fetch "$idx" "$full" "$namespaced" &
+    running=$((running + 1))
+    if [ "$running" -ge 8 ]; then wait_one; running=$((running - 1)); fi
+  done <"$T/types.tsv"
+  wait
+
+  local skipped=() printed=0 total=$idx rows kn
+  idx=0
+  : >"$T/merge.json"
+  while IFS=$'\t' read -r full kind group namespaced; do
+    idx=$((idx + 1))
+    if [ "$(cat "$T/$idx.rc" 2>/dev/null)" != 0 ]; then
+      skipped+=("$full ($(err_line "$T/$idx.err"))")
+      continue
+    fi
+    case $A_OUT in
+      name)
+        kn=$(printf '%s' "$kind" | tr '[:upper:]' '[:lower:]')
+        [ "$group" = "-" ] || kn="$kn.$group"
+        jq -r --arg kn "$kn" --argjson prefix "$([ -z "$A_NS" ] && [ "$namespaced" = true ] && echo true || echo false)" \
+          '.items[]? | (if $prefix then .metadata.namespace + "/" else "" end) + $kn + "/" + .metadata.name' "$T/$idx.out"
+        printed=$((printed + $(jq '.items | length' "$T/$idx.out")))
+        ;;
+      yaml|json) cat "$T/$idx.out" >>"$T/merge.json" ;;
+      *)
+        rows=$(($(wc -l <"$T/$idx.out") - 1))
+        [ "$rows" -gt 0 ] || continue
+        [ "$printed" -eq 0 ] || printf '\n'
+        printed=$((printed + 1))
+        paint "1;38;5;33" "$full ($rows)"; printf '\n'
+        cat "$T/$idx.out"
+        ;;
+    esac
+  done <"$T/types.tsv"
+
+  if [ ${#skipped[@]} -eq "$total" ]; then die "could not list any resource type: ${skipped[0]}"; fi
+  case $A_OUT in
+    yaml|json)
+      local merged
+      merged=$(jq -s '{apiVersion: "v1", items: (map(.items // []) | add // []), kind: "List"}' "$T/merge.json") \
+        || die "could not combine the listings"
+      if [ "$A_OUT" = json ]; then
+        printf '%s\n' "$merged" | jq -S --indent 4 .
+      else
+        printf '%s' "$merged" | jq -r --argjson color 0 "$JQ_LIB
+$JQ_NEAT
+clean | yaml"
+      fi
+      ;;
+    *)
+      if [ "$printed" -eq 0 ]; then
+        if [ -n "$A_NS" ]; then info "No resources found in $A_NS namespace."; else info "No resources found."; fi
+      fi
+      ;;
+  esac
+  if [ ${#skipped[@]} -gt 0 ]; then
+    local joined=${skipped[0]} i
+    for ((i = 1; i < ${#skipped[@]}; i++)); do joined+=", ${skipped[i]}"; done
+    info "Skipped: $joined"
+  fi
+  if [ ${#DEGRADED[@]} -gt 0 ]; then
+    local joined_d=${DEGRADED[0]} j
+    for ((j = 1; j < ${#DEGRADED[@]}; j++)); do joined_d+=", ${DEGRADED[j]}"; done
+    info "Degraded discovery: $joined_d"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # entry point
 # ---------------------------------------------------------------------------
 
@@ -728,6 +968,7 @@ main() {
   GLOBAL=("${args[@]:0:idx}")
   local rest=("${args[@]:idx+1}")
   case $first in
+    all) cmd_all "${rest[@]}" ;;
     get) cmd_get "${rest[@]}" ;;
     healthcheck|health) cmd_health "${rest[@]}" ;;
     images|image|imgs|img) cmd_pods images "${rest[@]}" ;;

@@ -1,0 +1,2 @@
+LAST SEEN   TYPE     REASON      OBJECT      MESSAGE
+1m          Normal   Scheduled   pod/web-1   assigned

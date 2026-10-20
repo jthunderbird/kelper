@@ -1,0 +1,19 @@
+{
+ "apiVersion": "v1",
+ "kind": "List",
+ "items": [
+  {
+   "apiVersion": "v1",
+   "kind": "Event",
+   "metadata": {
+    "name": "web-1.abc",
+    "uid": "u-web-1.abc",
+    "resourceVersion": "1",
+    "namespace": "prod"
+   }
+  }
+ ],
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

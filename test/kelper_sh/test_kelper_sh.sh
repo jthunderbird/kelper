@@ -38,6 +38,24 @@ check volumes           "$script" volumes
 check health-broken     "$script" healthcheck
 check health-errors     "$script" healthcheck --severity error
 
+export STUB_ALL=1
+check all-everything     "$script" all -A -y
+check all-bare-piped     "$script" all
+check all-namespaced     "$script" all -n prod
+check all-names          "$script" all -A -y -o name
+check all-names-ns       "$script" all -n prod -o name
+check all-yaml           "$script" all -n prod -o yaml
+check all-json           "$script" all -n prod -o json
+check all-include-noisy  "$script" all -n prod --include-noisy --include ev,po
+check all-exclude        "$script" all -A -y --exclude po,nodes
+check all-leading-ns     "$script" -n prod all
+expect all-forbidden-skipped 0 "Skipped: secrets (secrets is forbidden" "$script" all -A -y
+expect all-empty 0 "No resources found in empty namespace." "$script" all -n empty --include deploy
+expect all-bad-output 1 "unsupported output" "$script" all -n prod -o bogus
+expect all-no-match 1 "no matching resource types" "$script" all -n prod --include nothing-like-this
+expect all-cancelled-without-tty-still-runs 0 "pods (2)" "$script" all < /dev/null
+unset STUB_ALL
+
 expect health-exit-broken 1 "Summary:" "$script" healthcheck
 STUB_PODS=healthy-pods STUB_WORKLOADS=empty expect health-exit-clean 0 "No health problems found." "$script" healthcheck
 expect passthrough 0 "KUBECTL describe pod x" "$script" describe pod x
