@@ -1,0 +1,9 @@
+{"apiVersion":"apps/v1","kind":"Deployment","metadata":{"name":"web","namespace":"demo","uid":"u2","resourceVersion":"9","generation":3,"creationTimestamp":"2026-10-01T00:00:00Z",
+  "labels":{"app":"web"},"annotations":{"note":"line one\nline two\n","ratio":"1.5","empty":"","flag":"true","path":"/var/lib/data","cmd":"sh -c 'exit 0'"},
+  "managedFields":[{"manager":"kubectl"}],"ownerReferences":[{"name":"x"}],"finalizers":["f"]},
+ "spec":{"replicas":2,"revisionHistoryLimit":10,"progressDeadlineSeconds":600,"selector":{"matchLabels":{"app":"web"}},
+  "template":{"metadata":{"creationTimestamp":null,"labels":{"app":"web"}},
+   "spec":{"dnsPolicy":"ClusterFirst","restartPolicy":"Always","schedulerName":"default-scheduler","terminationGracePeriodSeconds":30,
+    "containers":[{"name":"app","image":"nginx:1.25","args":["--port","8080","-v"],"env":[],"ports":[{"containerPort":8080}],
+      "terminationMessagePath":"/dev/termination-log","terminationMessagePolicy":"File"}]}}},
+ "status":{"replicas":2,"availableReplicas":1}}

@@ -64,8 +64,25 @@ alias k=kelper
 k help
 ```
 
-The original bash script is available as `kelper.sh` in the repo root as a
-lightweight reference alternative.
+### Bash edition (no binary needed)
+
+Where the binary can't be installed, `kelper.sh` in the repo root is a single-file
+bash version of the everyday commands. Copy the text into a local file and alias it:
+
+```bash
+curl -fsSLo kelper.sh https://raw.githubusercontent.com/jthunderbird/kelper/main/kelper.sh   # or paste it
+chmod +x kelper.sh
+alias k=./kelper.sh
+```
+
+It needs only bash 4+, `kubectl` and `jq` 1.6+ (`kubeconfig` also uses `openssl`), and
+covers `get -o yaml` cleanup with Secret decoding, `images`, `resources`, `volumes`,
+a simpler `healthcheck` (pods, workloads, nodes, claims, services; `--watch` re-runs
+it on an interval) and `kubeconfig` (flags or a prompt wizard). Its output matches the
+binary for the pod inspectors and `get -o yaml`. It has no `pull`, `k9s`, live
+dashboard, api-server failover or shell completion, and its healthcheck skips the
+metrics, volume-usage, certificate and custom-resource checks. Everything else is
+forwarded to `kubectl`. Run `./kelper.sh help` for usage.
 
 ## Shell Completion
 

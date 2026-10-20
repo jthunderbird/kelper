@@ -1,0 +1,53 @@
+pod: web-1 (-n demo)
+────────────────────
+
+  initContainers:
+    init:
+      - mountPath: /work
+        name: work
+
+  containers:
+    app:
+      - mountPath: /etc/web
+        name: cfg
+        readOnly: true
+      - mountPath: /work
+        name: work
+    side:
+      (none)
+
+  shared volumes for web-1 pod:
+    - name: cfg
+      configMap:
+        name: web-cfg
+        items:
+        - key: a.conf
+          path: a.conf
+    - name: work
+      emptyDir: {}
+
+pod: crash-1 (-n demo)
+──────────────────────
+
+  initContainers:
+    (none)
+
+  containers:
+    app:
+      (none)
+
+  shared volumes for crash-1 pod:
+    (none)
+
+pod: stuck-1 (-n demo)
+──────────────────────
+
+  initContainers:
+    (none)
+
+  containers:
+    app:
+      (none)
+
+  shared volumes for stuck-1 pod:
+    (none)

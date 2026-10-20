@@ -33,6 +33,10 @@ jobs:
           cache: true
       - run: go vet ./...
       - run: go test ./...
+      - name: Bash edition (kelper.sh)
+        run: |
+          shellcheck kelper.sh test/kelper_sh/test_kelper_sh.sh test/kelper_sh/kubectl
+          make test-sh
 
   release:
     needs: [version, test]

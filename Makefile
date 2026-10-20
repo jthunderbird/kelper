@@ -19,7 +19,7 @@ FETCH_DIR    := internal/pull/assets
 FETCHERS     := $(foreach a,$(FETCH_ARCHES),$(FETCH_DIR)/kelper-fetch-linux-$(a))
 FETCH_SRC    := $(shell find cmd/kelper-fetch internal/pull/fetchproto -name '*.go' -not -name '*_test.go') go.mod go.sum
 
-.PHONY: build fetchers test install clean
+.PHONY: build fetchers test test-sh install clean
 
 build: $(FETCHERS)
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
@@ -31,6 +31,10 @@ $(FETCH_DIR)/kelper-fetch-linux-%: $(FETCH_SRC)
 
 test:
 	go test ./...
+
+# Offline tests of the bash edition; needs jq.
+test-sh:
+	bash test/kelper_sh/test_kelper_sh.sh
 
 install: build
 	install -m 0755 $(BINARY) $(PREFIX)/bin/$(BINARY)
